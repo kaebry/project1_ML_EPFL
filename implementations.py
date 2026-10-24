@@ -1,8 +1,9 @@
 import numpy as np
 import matplotlib
 
+
 def mean_squared_error_gd(y, tx, initial_w, max_iters, gamma):
-    '''
+    """
     Linear regression using gradient descent on the MSE loss.
 
     At each iteration, w is updated using the gradient of the MSE loss
@@ -18,26 +19,27 @@ def mean_squared_error_gd(y, tx, initial_w, max_iters, gamma):
     Returns:
         w: numpy array of shape (D,), the weights after the last iteration.
         loss: float, the MSE loss (with factor 1/2) of w on the full dataset.
-    '''
-    # 1. start w from initial_w 
+    """
+    # 1. start w from initial_w
     w = initial_w
 
     # 2. repeat max_iters times:
     #       - error from the CURRENT w
-    #       - gradient from the error 
+    #       - gradient from the error
     #       - update w with the gradient and gamma
     for _ in range(max_iters):
         e = y - tx @ w
         gradient = (-tx.T / len(y)) @ e
         w = w - gradient * gamma
-    
+
     # loss for the final w
-    loss = 0.5 * np.mean((y - tx @ w)**2)
+    loss = 0.5 * np.mean((y - tx @ w) ** 2)
 
     return (w, loss)
 
+
 def mean_squared_error_sgd(y, tx, initial_w, max_iters, gamma):
-    '''
+    """
     Linear regression using stochastic gradient descent (batch size 1) on the MSE loss.
 
     At each iteration, one data point is sampled uniformly at random and w is
@@ -53,8 +55,8 @@ def mean_squared_error_sgd(y, tx, initial_w, max_iters, gamma):
     Returns:
         w: numpy array of shape (D,), the weights after the last iteration.
         loss: float, the MSE loss (with factor 1/2) of w on the full dataset.
-    '''
-    # 1. start w from initial_w 
+    """
+    # 1. start w from initial_w
     w = initial_w
 
     # 2. repeat max_iters times:
@@ -68,12 +70,13 @@ def mean_squared_error_sgd(y, tx, initial_w, max_iters, gamma):
         w = w - gradient * gamma
 
     # loss for the final w
-    loss = 0.5 * np.mean((y - tx @ w)**2)
+    loss = 0.5 * np.mean((y - tx @ w) ** 2)
 
     return (w, loss)
 
+
 def least_squares(y, tx):
-    '''
+    """
     Least squares regression using the normal equations.
 
     Computes the weights that minimize the MSE loss in closed form, by solving
@@ -86,14 +89,15 @@ def least_squares(y, tx):
     Returns:
         w: numpy array of shape (D,), the optimal weights.
         loss: float, the MSE loss (with factor 1/2) of w on the full dataset.
-    '''
+    """
     w = np.linalg.solve(tx.T @ tx, tx.T @ y)
-    loss = 0.5 * np.mean((y - tx @ w)**2)
+    loss = 0.5 * np.mean((y - tx @ w) ** 2)
 
     return (w, loss)
 
+
 def ridge_regression(y, tx, lambda_):
-    '''
+    """
     Ridge regression using the normal equations.
 
     Computes the weights minimizing the MSE loss plus the penalty
@@ -108,14 +112,17 @@ def ridge_regression(y, tx, lambda_):
         w: numpy array of shape (D,), the optimal weights.
         loss: float, the MSE loss (with factor 1/2) of w on the full dataset,
             without the penalty term.
-    '''
-    w = np.linalg.solve(tx.T @ tx + 2 * len(y) * lambda_ * np.eye(tx.shape[1]), tx.T @ y)
-    loss = 0.5 * np.mean((y - tx @ w)**2)
+    """
+    w = np.linalg.solve(
+        tx.T @ tx + 2 * len(y) * lambda_ * np.eye(tx.shape[1]), tx.T @ y
+    )
+    loss = 0.5 * np.mean((y - tx @ w) ** 2)
 
     return (w, loss)
 
+
 def sigmoid(z):
-    '''
+    """
     Logistic function 1 / (1 + exp(-z)), applied elementwise.
 
     Args:
@@ -123,11 +130,12 @@ def sigmoid(z):
 
     Returns:
         numpy array of the same shape as z, with values in [0, 1].
-    '''
+    """
     return 1 / (1 + np.exp(-z))
 
+
 def logistic_loss(y, tx, w):
-    '''
+    """
     Logistic loss: the negative log-likelihood of the labels, averaged over the dataset.
 
         loss(w) = 1/N * sum_n [ log(1 + exp(x_n^T w)) - y_n * x_n^T w ]
@@ -139,12 +147,13 @@ def logistic_loss(y, tx, w):
 
     Returns:
         float, the logistic loss of w on the full dataset.
-    '''
+    """
     z = tx @ w
     return np.mean(np.log(1 + np.exp(z)) - y * z)
 
+
 def logistic_gradient(y, tx, w):
-    '''
+    """
     Gradient of the logistic loss with respect to w, on the full dataset.
 
         grad(w) = 1/N * tx^T (sigmoid(tx w) - y)
@@ -156,11 +165,12 @@ def logistic_gradient(y, tx, w):
 
     Returns:
         numpy array of shape (D,), the gradient of the logistic loss at w.
-    '''
+    """
     return tx.T @ (sigmoid(tx @ w) - y) / len(y)
 
+
 def logistic_regression(y, tx, initial_w, max_iters, gamma):
-    '''
+    """
     Logistic regression using gradient descent (y in {0, 1}).
 
     At each iteration, w is updated using the gradient of the logistic loss
@@ -176,7 +186,7 @@ def logistic_regression(y, tx, initial_w, max_iters, gamma):
     Returns:
         w: numpy array of shape (D,), the weights after the last iteration.
         loss: float, the logistic loss of w on the full dataset.
-    '''
+    """
     # 1. start w from initial_w
     w = initial_w
 
@@ -192,8 +202,9 @@ def logistic_regression(y, tx, initial_w, max_iters, gamma):
 
     return (w, loss)
 
+
 def reg_logistic_regression(y, tx, lambda_, initial_w, max_iters, gamma):
-    '''
+    """
     Regularized logistic regression using gradient descent (y in {0, 1}).
 
     Minimizes the logistic loss plus the penalty lambda_ * ||w||^2. At each
@@ -214,7 +225,7 @@ def reg_logistic_regression(y, tx, lambda_, initial_w, max_iters, gamma):
         w: numpy array of shape (D,), the weights after the last iteration.
         loss: float, the logistic loss of w on the full dataset,
             without the penalty term.
-    '''
+    """
     # 1. start w from initial_w
     w = initial_w
 
