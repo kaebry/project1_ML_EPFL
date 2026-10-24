@@ -113,3 +113,120 @@ def ridge_regression(y, tx, lambda_):
     loss = 0.5 * np.mean((y - tx @ w)**2)
 
     return (w, loss)
+
+def sigmoid(z):
+    '''
+    Logistic function 1 / (1 + exp(-z)), applied elementwise.
+
+    Args:
+        z: numpy array of any shape (or a scalar), the logits.
+
+    Returns:
+        numpy array of the same shape as z, with values in [0, 1].
+    '''
+    return 1 / (1 + np.exp(-z))
+
+def logistic_loss(y, tx, w):
+    '''
+    Logistic loss: the negative log-likelihood of the labels, averaged over the dataset.
+
+        loss(w) = 1/N * sum_n [ log(1 + exp(x_n^T w)) - y_n * x_n^T w ]
+
+    Args:
+        y: numpy array of shape (N,), the labels in {0, 1}.
+        tx: numpy array of shape (N, D), the data matrix (with bias column if used).
+        w: numpy array of shape (D,), the weights.
+
+    Returns:
+        float, the logistic loss of w on the full dataset.
+    '''
+    z = tx @ w
+    return np.mean(np.log(1 + np.exp(z)) - y * z)
+
+def logistic_gradient(y, tx, w):
+    '''
+    Gradient of the logistic loss with respect to w, on the full dataset.
+
+        grad(w) = 1/N * tx^T (sigmoid(tx w) - y)
+
+    Args:
+        y: numpy array of shape (N,), the labels in {0, 1}.
+        tx: numpy array of shape (N, D), the data matrix (with bias column if used).
+        w: numpy array of shape (D,), the weights.
+
+    Returns:
+        numpy array of shape (D,), the gradient of the logistic loss at w.
+    '''
+    return tx.T @ (sigmoid(tx @ w) - y) / len(y)
+
+def logistic_regression(y, tx, initial_w, max_iters, gamma):
+    '''
+    Logistic regression using gradient descent (y in {0, 1}).
+
+    At each iteration, w is updated using the gradient of the logistic loss
+    (negative log-likelihood) computed on the full dataset.
+
+    Args:
+        y: numpy array of shape (N,), the labels in {0, 1}.
+        tx: numpy array of shape (N, D), the data matrix (with bias column if used).
+        initial_w: numpy array of shape (D,), the initial weights.
+        max_iters: int, the number of gradient descent steps.
+        gamma: float, the step size.
+
+    Returns:
+        w: numpy array of shape (D,), the weights after the last iteration.
+        loss: float, the logistic loss of w on the full dataset.
+    '''
+    # 1. start w from initial_w
+    w = initial_w
+
+    # 2. repeat max_iters times:
+    #       - gradient of the logistic loss at the CURRENT w
+    #       - update w with the gradient and gamma
+    for _ in range(max_iters):
+        gradient = logistic_gradient(y, tx, w)
+        w = w - gradient * gamma
+
+    # loss for the final w
+    loss = logistic_loss(y, tx, w)
+
+    return (w, loss)
+
+def reg_logistic_regression(y, tx, lambda_, initial_w, max_iters, gamma):
+    '''
+    Regularized logistic regression using gradient descent (y in {0, 1}).
+
+    Minimizes the logistic loss plus the penalty lambda_ * ||w||^2. At each
+    iteration, w is updated using the gradient of this penalized objective
+    computed on the full dataset: the penalty adds 2 * lambda_ * w to the
+    gradient of the logistic loss. All entries of w are penalized, including
+    the bias weight if tx has a bias column.
+
+    Args:
+        y: numpy array of shape (N,), the labels in {0, 1}.
+        tx: numpy array of shape (N, D), the data matrix (with bias column if used).
+        lambda_: float, the regularization parameter.
+        initial_w: numpy array of shape (D,), the initial weights.
+        max_iters: int, the number of gradient descent steps.
+        gamma: float, the step size.
+
+    Returns:
+        w: numpy array of shape (D,), the weights after the last iteration.
+        loss: float, the logistic loss of w on the full dataset,
+            without the penalty term.
+    '''
+    # 1. start w from initial_w
+    w = initial_w
+
+    # 2. repeat max_iters times:
+    #       - gradient of the logistic loss at the CURRENT w
+    #       - add the gradient of the penalty, 2 * lambda_ * w
+    #       - update w with the penalized gradient and gamma
+    for _ in range(max_iters):
+        gradient = logistic_gradient(y, tx, w) + 2 * lambda_ * w
+        w = w - gradient * gamma
+
+    # loss for the final w (without the penalty term)
+    loss = logistic_loss(y, tx, w)
+
+    return (w, loss)
