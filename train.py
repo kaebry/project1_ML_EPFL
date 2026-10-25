@@ -4,7 +4,7 @@ import numpy as np
 
 from helpers import load_csv_data
 from implementations import logistic_regression, sigmoid
-from preprocessing import prepare_data
+from preprocessing import load_feature_names, prepare_data
 
 
 def classification_metrics(y_true, y_pred):
@@ -128,6 +128,8 @@ def train_logistic(
 def main():
     # Use False here when we are ready for the full labelled dataset.
     sub_sample = False
+    # Set False to use the original preprocessing.
+    use_feature_rules = True
 
     # Load the data once.
     print("Loading CSV files...", flush=True)
@@ -135,12 +137,17 @@ def main():
     x_train, x_test, y_train, train_ids, test_ids = load_csv_data(
         data_path, sub_sample=sub_sample
     )
+    feature_names = load_feature_names(data_path / "x_train.csv")
     print("sub_sample:", sub_sample)
+    print("use_feature_rules:", use_feature_rules)
     print("labelled rows:", len(y_train))
 
     # Prepare the same training and validation data for all models.
     print("\nPreparing training and validation data...", flush=True)
-    tx_fit, y_fit, tx_val, y_val = prepare_data(x_train, y_train)
+    tx_fit, y_fit, tx_val, y_val = prepare_data(
+        x_train, y_train,
+        feature_names=feature_names, use_feature_rules=use_feature_rules,
+    )
     print("training shape (including bias):", tx_fit.shape)
     print("validation shape (including bias):", tx_val.shape)
 

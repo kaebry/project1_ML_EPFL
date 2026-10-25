@@ -1,4 +1,15 @@
+import csv
+
 import numpy as np
+
+
+def load_feature_names(csv_path):
+    # Read the header and remove the Id column.
+    with open(csv_path, newline="") as file:
+        reader = csv.reader(file)
+        header = next(reader)
+
+    return header[1:]
 
 
 def stratified_split(y, validation_fraction=0.20, seed=42):
@@ -33,6 +44,31 @@ def stratified_split(y, validation_fraction=0.20, seed=42):
     rng.shuffle(val_indices)
 
     return train_indices, val_indices
+
+
+def clean_known_features(x, feature_names):
+    """Drop survey IDs, decode two features and append their missing indicators."""
+    if len(feature_names) != x.shape[1]:
+        raise ValueError("Feature names must match the input columns.")
+
+    keep_columns = [name not in ("SEQNO", "_PSU") for name in feature_names]
+    kept_names = [name for name in feature_names if name not in ("SEQNO", "_PSU")]
+    x_clean = x[:, keep_columns]
+
+    health_index = kept_names.index("GENHLTH")
+    days_index = kept_names.index("PHYSHLTH")
+    health = x_clean[:, health_index]
+    days = x_clean[:, days_index]
+
+    # Count both NaN and coded unavailable responses as missing.
+    health_missing = np.isnan(health) | np.isin(health, [7, 9])
+    days_missing = np.isnan(days) | np.isin(days, [77, 99])
+    x_clean[health_missing, health_index] = np.nan
+    x_clean[days_missing, days_index] = np.nan
+    x_clean[x_clean[:, days_index] == 88, days_index] = 0
+
+    # The last two columns flag missing GENHLTH and PHYSHLTH responses.
+    return np.column_stack((x_clean, health_missing, days_missing))
 
 
 def fit_imputer(x):
@@ -74,7 +110,10 @@ def add_bias(x):
     return np.column_stack((np.ones(x.shape[0]), x))
 
 
-def prepare_data(x, y, validation_fraction=0.20, seed=42):
+def prepare_data(
+    x, y, validation_fraction=0.20, seed=42,
+    feature_names=None, use_feature_rules=False,
+):
     """Return prepared training and validation arrays."""
     if not 0 < validation_fraction < 1:
         raise ValueError("validation_fraction must be between 0 and 1.")
@@ -98,6 +137,13 @@ def prepare_data(x, y, validation_fraction=0.20, seed=42):
         np.sort(np.concatenate((train_indices, val_indices))),
         np.arange(len(y)),
     )
+
+    if use_feature_rules:
+        if feature_names is None:
+            raise ValueError("Feature names are required for feature rules.")
+        print("  Cleaning reviewed features...", flush=True)
+        x_fit = clean_known_features(x_fit, feature_names)
+        x_val = clean_known_features(x_val, feature_names)
 
     # Learn medians from training data, then clean both sets.
     print("  Filling missing values...", flush=True)

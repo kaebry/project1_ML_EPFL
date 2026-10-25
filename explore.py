@@ -1,20 +1,10 @@
-import csv
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
 
 from helpers import load_csv_data
-from preprocessing import stratified_split
-
-
-def load_feature_names(csv_path):
-    # Read the header and remove the Id column.
-    with open(csv_path, newline="") as file:
-        reader = csv.reader(file)
-        header = next(reader)
-
-    return header[1:]
+from preprocessing import load_feature_names, stratified_split
 
 
 def print_feature_summary(x, feature_names):
