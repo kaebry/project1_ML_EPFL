@@ -84,6 +84,7 @@ def prepare_data(x, y, validation_fraction=0.20, seed=42):
         raise ValueError("Labels must be -1 or +1.")
 
     # Split the data into training and validation sets.
+    print("  Splitting rows...", flush=True)
     train_indices, val_indices = stratified_split(y, validation_fraction, seed)
     if len(train_indices) == 0 or len(val_indices) == 0:
         raise ValueError("The split must contain training and validation rows.")
@@ -99,11 +100,13 @@ def prepare_data(x, y, validation_fraction=0.20, seed=42):
     )
 
     # Learn medians from training data, then clean both sets.
+    print("  Filling missing values...", flush=True)
     keep_columns, medians = fit_imputer(x_fit)
     x_fit_clean = apply_imputer(x_fit, keep_columns, medians)
     x_val_clean = apply_imputer(x_val, keep_columns, medians)
 
     # Learn scaling from training data, then scale both sets.
+    print("  Standardizing features...", flush=True)
     means, stds = fit_scaler(x_fit_clean)
     x_fit_scaled = apply_scaler(x_fit_clean, means, stds)
     x_val_scaled = apply_scaler(x_val_clean, means, stds)
@@ -111,6 +114,7 @@ def prepare_data(x, y, validation_fraction=0.20, seed=42):
     assert np.isfinite(x_val_scaled).all()
 
     # Add the intercept after scaling.
+    print("  Adding bias...", flush=True)
     tx_fit = add_bias(x_fit_scaled)
     tx_val = add_bias(x_val_scaled)
 

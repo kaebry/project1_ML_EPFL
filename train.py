@@ -43,7 +43,21 @@ def classification_metrics(y_true, y_pred):
 
 def print_metrics(name, metrics):
     for metric, value in metrics.items():
-        print(f"{name} {metric}: {value}")
+        print(f"{name} {metric}: {value}", flush=True)
+
+
+def print_progress(current, total, loss):
+    # Update one line in the terminal.
+    fraction = current / total if total > 0 else 1.0
+    filled = int(25 * fraction)
+    bar = "#" * filled + "-" * (25 - filled)
+    end = "\n" if current == total else ""
+    print(
+        f"\rTraining [{bar}] {fraction:6.1%} "
+        f"({current}/{total}) loss={loss:.4f}",
+        end=end,
+        flush=True,
+    )
 
 
 def evaluate_baseline(y_fit, y_val):
@@ -61,16 +75,27 @@ def evaluate_baseline(y_fit, y_val):
 def train_logistic(
     tx_fit, y_fit, tx_val, y_val, max_iters=1000, gamma=0.01, threshold=0.5
 ):
+    if max_iters < 0:
+        raise ValueError("max_iters cannot be negative.")
+
     # Convert training labels from -1/+1 to 0/1.
     y_fit_01 = (y_fit == 1).astype(int)
 
     # One zero weight per input column.
     initial_w = np.zeros(tx_fit.shape[1])
 
-    # Train the logistic regression model.
+    # Calculate the initial loss before training.
+    print("\nTraining logistic regression...", flush=True)
     w, train_loss = logistic_regression(
-        y_fit_01, tx_fit, initial_w, max_iters, gamma
+        y_fit_01, tx_fit, initial_w, 0, gamma
     )
+    print_progress(0, max_iters, train_loss)
+
+    # Continue from the current weights and update progress every 20 steps.
+    for start in range(0, max_iters, 20):
+        steps = min(20, max_iters - start)
+        w, train_loss = logistic_regression(y_fit_01, tx_fit, w, steps, gamma)
+        print_progress(start + steps, max_iters, train_loss)
 
     assert w.shape == (tx_fit.shape[1],)
     assert np.isfinite(w).all()
@@ -78,6 +103,7 @@ def train_logistic(
     assert 0 <= threshold <= 1
 
     # Calculate training and validation probabilities.
+    print("\nEvaluating logistic regression...", flush=True)
     train_probabilities = sigmoid(tx_fit @ w)
     val_probabilities = sigmoid(tx_val @ w)
 
@@ -101,9 +127,10 @@ def train_logistic(
 
 def main():
     # Use False here when we are ready for the full labelled dataset.
-    sub_sample = True
+    sub_sample = False
 
     # Load the data once.
+    print("Loading CSV files...", flush=True)
     data_path = Path(__file__).resolve().parent / "dataset"
     x_train, x_test, y_train, train_ids, test_ids = load_csv_data(
         data_path, sub_sample=sub_sample
@@ -112,12 +139,15 @@ def main():
     print("labelled rows:", len(y_train))
 
     # Prepare the same training and validation data for all models.
+    print("\nPreparing training and validation data...", flush=True)
     tx_fit, y_fit, tx_val, y_val = prepare_data(x_train, y_train)
     print("training shape (including bias):", tx_fit.shape)
     print("validation shape (including bias):", tx_val.shape)
 
+    print("\nEvaluating baseline...", flush=True)
     evaluate_baseline(y_fit, y_val)
     train_logistic(tx_fit, y_fit, tx_val, y_val)
+    print("\nFinished.", flush=True)
 
 
 if __name__ == "__main__":
