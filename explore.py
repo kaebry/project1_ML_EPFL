@@ -69,6 +69,52 @@ def fit_scaler(x):
 def apply_scaler(x, means, stds):
     return (x - means) / stds
 
+def classification_metrics(y_true, y_pred):
+    assert y_true.ndim == 1
+    assert y_true.shape == y_pred.shape
+    assert len(y_true) > 0
+
+    # Count the four prediction outcomes.
+    tp = int(np.sum((y_true == 1) & (y_pred == 1)))
+    tn = int(np.sum((y_true == -1) & (y_pred == -1)))
+    fp = int(np.sum((y_true == -1) & (y_pred == 1)))
+    fn = int(np.sum((y_true == 1) & (y_pred == -1)))
+
+    assert tp + tn + fp + fn == len(y_true)
+
+    accuracy = (tp + tn) / len(y_true)
+
+    # Use 0 when the denominator is zero.
+    precision = tp / (tp + fp) if tp + fp > 0 else 0.0
+    recall = tp / (tp + fn) if tp + fn > 0 else 0.0
+
+    f1_denominator = 2 * tp + fp + fn
+    f1 = 2 * tp / f1_denominator if f1_denominator > 0 else 0.0
+
+    return {
+        "tp": tp,
+        "tn": tn,
+        "fp": fp,
+        "fn": fn,
+        "accuracy": accuracy,
+        "precision": precision,
+        "recall": recall,
+        "f1": f1,
+    }
+
+
+# Check the metrics on a small example.
+example_y = np.array([1, 1, -1, -1])
+example_pred = np.array([1, -1, 1, -1])
+
+example_metrics = classification_metrics(example_y, example_pred)
+
+for name in ("tp", "tn", "fp", "fn"):
+    assert example_metrics[name] == 1
+
+for name in ("accuracy", "precision", "recall", "f1"):
+    assert np.isclose(example_metrics[name], 0.5)
+
 
 # Load a small data sample.
 x_train, x_test, y_train, train_ids, test_ids = load_csv_data(
@@ -169,4 +215,16 @@ print("scaled training shape:", x_fit_scaled.shape)
 print("scaled validation shape:", x_val_scaled.shape)
 print("training means:", np.mean(x_fit_scaled, axis=0)[:5])
 print("training stds:", np.std(x_fit_scaled, axis=0)[:5])
+
+
+# Baseline: predict the majority training class for every validation row.
+baseline_label = labels[np.argmax(np.unique(y_fit, return_counts=True)[1])]
+baseline_predictions = np.full_like(y_val, baseline_label)
+
+baseline_metrics = classification_metrics(y_val, baseline_predictions)
+
+print("baseline label:", baseline_label)
+for name, value in baseline_metrics.items():
+    print(f"baseline {name}: {value}")
+
 print("All checks passed.")
