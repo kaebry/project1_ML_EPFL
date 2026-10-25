@@ -55,6 +55,21 @@ def apply_imputer(x, keep_columns, medians):
     return np.where(np.isnan(x_clean), medians, x_clean)
 
 
+def fit_scaler(x):
+    # One mean and standard deviation per column.
+    means = np.mean(x, axis=0)
+    stds = np.std(x, axis=0)
+
+    # Replace zero standard deviations with 1.
+    stds[stds == 0] = 1.0
+
+    return means, stds
+
+
+def apply_scaler(x, means, stds):
+    return (x - means) / stds
+
+
 # Load a small data sample.
 x_train, x_test, y_train, train_ids, test_ids = load_csv_data(
     "dataset", sub_sample=True
@@ -122,4 +137,36 @@ print("clean training shape:", x_fit_clean.shape)
 print("clean validation shape:", x_val_clean.shape)
 print("training NaNs remaining:", np.isnan(x_fit_clean).sum())
 print("validation NaNs remaining:", np.isnan(x_val_clean).sum())
+
+
+# Learn scaling from training data, then scale both sets.
+means, stds = fit_scaler(x_fit_clean)
+
+x_fit_scaled = apply_scaler(x_fit_clean, means, stds)
+x_val_scaled = apply_scaler(x_val_clean, means, stds)
+
+assert x_fit_scaled.shape == x_fit_clean.shape
+assert x_val_scaled.shape == x_val_clean.shape
+assert np.isfinite(x_fit_scaled).all()
+assert np.isfinite(x_val_scaled).all()
+
+# Check that training means are close to zero.
+np.testing.assert_allclose(
+    np.mean(x_fit_scaled, axis=0),
+    0.0,
+    atol=1e-6,
+)
+
+# Check that nonconstant training columns have standard deviation 1.
+variable_columns = np.std(x_fit_clean, axis=0) > 0
+np.testing.assert_allclose(
+    np.std(x_fit_scaled, axis=0)[variable_columns],
+    1.0,
+    atol=1e-6,
+)
+
+print("scaled training shape:", x_fit_scaled.shape)
+print("scaled validation shape:", x_val_scaled.shape)
+print("training means:", np.mean(x_fit_scaled, axis=0)[:5])
+print("training stds:", np.std(x_fit_scaled, axis=0)[:5])
 print("All checks passed.")
