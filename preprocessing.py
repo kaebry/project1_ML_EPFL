@@ -72,3 +72,46 @@ def apply_scaler(x, means, stds):
 def add_bias(x):
     # Add a column of ones for the intercept.
     return np.column_stack((np.ones(x.shape[0]), x))
+
+
+def prepare_data(x, y, validation_fraction=0.20, seed=42):
+    """Return prepared training and validation arrays."""
+    if not 0 < validation_fraction < 1:
+        raise ValueError("validation_fraction must be between 0 and 1.")
+    if x.ndim != 2 or y.ndim != 1 or len(x) != len(y):
+        raise ValueError("Expected x with shape (N, D) and y with shape (N,).")
+    if not np.all(np.isin(y, [-1, 1])):
+        raise ValueError("Labels must be -1 or +1.")
+
+    # Split the data into training and validation sets.
+    train_indices, val_indices = stratified_split(y, validation_fraction, seed)
+    if len(train_indices) == 0 or len(val_indices) == 0:
+        raise ValueError("The split must contain training and validation rows.")
+
+    x_fit, y_fit = x[train_indices], y[train_indices]
+    x_val, y_val = x[val_indices], y[val_indices]
+
+    # Check that the split uses each row once.
+    assert np.intersect1d(train_indices, val_indices).size == 0
+    np.testing.assert_array_equal(
+        np.sort(np.concatenate((train_indices, val_indices))),
+        np.arange(len(y)),
+    )
+
+    # Learn medians from training data, then clean both sets.
+    keep_columns, medians = fit_imputer(x_fit)
+    x_fit_clean = apply_imputer(x_fit, keep_columns, medians)
+    x_val_clean = apply_imputer(x_val, keep_columns, medians)
+
+    # Learn scaling from training data, then scale both sets.
+    means, stds = fit_scaler(x_fit_clean)
+    x_fit_scaled = apply_scaler(x_fit_clean, means, stds)
+    x_val_scaled = apply_scaler(x_val_clean, means, stds)
+    assert np.isfinite(x_fit_scaled).all()
+    assert np.isfinite(x_val_scaled).all()
+
+    # Add the intercept after scaling.
+    tx_fit = add_bias(x_fit_scaled)
+    tx_val = add_bias(x_val_scaled)
+
+    return tx_fit, y_fit, tx_val, y_val

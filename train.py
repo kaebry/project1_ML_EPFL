@@ -4,14 +4,7 @@ import numpy as np
 
 from helpers import load_csv_data
 from implementations import logistic_regression, sigmoid
-from preprocessing import (
-    add_bias,
-    apply_imputer,
-    apply_scaler,
-    fit_imputer,
-    fit_scaler,
-    stratified_split,
-)
+from preprocessing import prepare_data
 
 
 def classification_metrics(y_true, y_pred):
@@ -48,153 +41,83 @@ def classification_metrics(y_true, y_pred):
     }
 
 
-def main():
-    # Check the metrics on a small example.
-    example_y = np.array([1, 1, -1, -1])
-    example_pred = np.array([1, -1, 1, -1])
+def print_metrics(name, metrics):
+    for metric, value in metrics.items():
+        print(f"{name} {metric}: {value}")
 
-    example_metrics = classification_metrics(example_y, example_pred)
 
-    for name in ("tp", "tn", "fp", "fn"):
-        assert example_metrics[name] == 1
+def evaluate_baseline(y_fit, y_val):
+    # Predict the majority training class for every validation row.
+    labels, counts = np.unique(y_fit, return_counts=True)
+    baseline_label = labels[np.argmax(counts)]
+    predictions = np.full_like(y_val, baseline_label)
 
-    for name in ("accuracy", "precision", "recall", "f1"):
-        assert np.isclose(example_metrics[name], 0.5)
-
-    # Load a small data sample.
-    data_path = Path(__file__).resolve().parent / "dataset"
-    x_train, _x_test, y_train, _train_ids, _test_ids = load_csv_data(
-        data_path, sub_sample=True
-    )
-
-    # Split the data into training and validation sets.
-    train_indices, val_indices = stratified_split(y_train)
-
-    x_fit = x_train[train_indices]
-    y_fit = y_train[train_indices]
-    x_val = x_train[val_indices]
-    y_val = y_train[val_indices]
-
-    # Check that the split uses each row once.
-    assert np.intersect1d(train_indices, val_indices).size == 0
-
-    all_indices = np.concatenate((train_indices, val_indices))
-    np.testing.assert_array_equal(
-        np.sort(all_indices),
-        np.arange(len(y_train)),
-    )
-
-    # Check that the same seed gives the same split.
-    train_again, val_again = stratified_split(y_train)
-    np.testing.assert_array_equal(train_indices, train_again)
-    np.testing.assert_array_equal(val_indices, val_again)
-
-    print("training shape:", x_fit.shape)
-    print("validation shape:", x_val.shape)
-    print("training positive fraction:", np.mean(y_fit == 1))
-    print("validation positive fraction:", np.mean(y_val == 1))
-
-    # Learn medians from training data, then clean both sets.
-    keep_columns, medians = fit_imputer(x_fit)
-
-    x_fit_clean = apply_imputer(x_fit, keep_columns, medians)
-    x_val_clean = apply_imputer(x_val, keep_columns, medians)
-
-    assert x_fit_clean.shape == (len(y_fit), len(medians))
-    assert x_val_clean.shape == (len(y_val), len(medians))
-    assert np.isfinite(x_fit_clean).all()
-    assert np.isfinite(x_val_clean).all()
-
-    print("removed columns:", np.sum(~keep_columns))
-    print("clean training shape:", x_fit_clean.shape)
-    print("clean validation shape:", x_val_clean.shape)
-    print("training NaNs remaining:", np.isnan(x_fit_clean).sum())
-    print("validation NaNs remaining:", np.isnan(x_val_clean).sum())
-
-    # Learn scaling from training data, then scale both sets.
-    means, stds = fit_scaler(x_fit_clean)
-
-    x_fit_scaled = apply_scaler(x_fit_clean, means, stds)
-    x_val_scaled = apply_scaler(x_val_clean, means, stds)
-
-    assert x_fit_scaled.shape == x_fit_clean.shape
-    assert x_val_scaled.shape == x_val_clean.shape
-    assert np.isfinite(x_fit_scaled).all()
-    assert np.isfinite(x_val_scaled).all()
-
-    # Check that training means are close to zero.
-    np.testing.assert_allclose(
-        np.mean(x_fit_scaled, axis=0),
-        0.0,
-        atol=1e-6,
-    )
-
-    # Check that nonconstant training columns have standard deviation 1.
-    variable_columns = np.std(x_fit_clean, axis=0) > 0
-    np.testing.assert_allclose(
-        np.std(x_fit_scaled, axis=0)[variable_columns],
-        1.0,
-        atol=1e-6,
-    )
-
-    print("scaled training shape:", x_fit_scaled.shape)
-    print("scaled validation shape:", x_val_scaled.shape)
-    print("training means:", np.mean(x_fit_scaled, axis=0)[:5])
-    print("training stds:", np.std(x_fit_scaled, axis=0)[:5])
-
-    # Baseline: predict the majority training class for every validation row.
-    fit_labels, fit_counts = np.unique(y_fit, return_counts=True)
-    baseline_label = fit_labels[np.argmax(fit_counts)]
-    baseline_predictions = np.full_like(y_val, baseline_label)
-
-    baseline_metrics = classification_metrics(y_val, baseline_predictions)
-
+    metrics = classification_metrics(y_val, predictions)
     print("baseline label:", baseline_label)
-    for name, value in baseline_metrics.items():
-        print(f"baseline {name}: {value}")
+    print_metrics("baseline", metrics)
+    return metrics
 
 
-    # Add the intercept after scaling.
-    tx_fit = add_bias(x_fit_scaled)
-    tx_val = add_bias(x_val_scaled)
-
+def train_logistic(
+    tx_fit, y_fit, tx_val, y_val, max_iters=1000, gamma=0.01, threshold=0.5
+):
     # Convert training labels from -1/+1 to 0/1.
     y_fit_01 = (y_fit == 1).astype(int)
 
     # One zero weight per input column.
     initial_w = np.zeros(tx_fit.shape[1])
 
-    # Train the first logistic regression model.
+    # Train the logistic regression model.
     w, train_loss = logistic_regression(
-        y_fit_01,
-        tx_fit,
-        initial_w,
-        max_iters=1000,
-        gamma=0.01,
+        y_fit_01, tx_fit, initial_w, max_iters, gamma
     )
-
-    # Calculate validation probabilities.
-    val_probabilities = sigmoid(tx_val @ w)
-
-    # Convert probabilities to -1/+1 predictions.
-    val_predictions = (val_probabilities >= 0.5).astype(int) * 2 - 1
 
     assert w.shape == (tx_fit.shape[1],)
     assert np.isfinite(w).all()
     assert np.isfinite(train_loss)
+    assert 0 <= threshold <= 1
+
+    # Calculate training and validation probabilities.
+    train_probabilities = sigmoid(tx_fit @ w)
+    val_probabilities = sigmoid(tx_val @ w)
+
+    assert np.isfinite(train_probabilities).all()
     assert np.isfinite(val_probabilities).all()
-    assert np.all(
-        (val_probabilities >= 0) & (val_probabilities <= 1)
-    )
+
+    # Convert probabilities to -1/+1 predictions.
+    train_predictions = (train_probabilities >= threshold).astype(int) * 2 - 1
+    val_predictions = (val_probabilities >= threshold).astype(int) * 2 - 1
+
+    train_metrics = classification_metrics(y_fit, train_predictions)
+    val_metrics = classification_metrics(y_val, val_predictions)
 
     print("weights shape:", w.shape)
     print("training loss:", train_loss)
+    print_metrics("logistic training", train_metrics)
+    print_metrics("logistic validation", val_metrics)
 
-    model_metrics = classification_metrics(y_val, val_predictions)
-    for name, value in model_metrics.items():
-        print(f"logistic {name}: {value}")
+    return w, train_loss
 
-    print("All checks passed.")
+
+def main():
+    # Use False here when we are ready for the full labelled dataset.
+    sub_sample = True
+
+    # Load the data once.
+    data_path = Path(__file__).resolve().parent / "dataset"
+    x_train, x_test, y_train, train_ids, test_ids = load_csv_data(
+        data_path, sub_sample=sub_sample
+    )
+    print("sub_sample:", sub_sample)
+    print("labelled rows:", len(y_train))
+
+    # Prepare the same training and validation data for all models.
+    tx_fit, y_fit, tx_val, y_val = prepare_data(x_train, y_train)
+    print("training shape (including bias):", tx_fit.shape)
+    print("validation shape (including bias):", tx_val.shape)
+
+    evaluate_baseline(y_fit, y_val)
+    train_logistic(tx_fit, y_fit, tx_val, y_val)
 
 
 if __name__ == "__main__":
