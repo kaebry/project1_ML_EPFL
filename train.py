@@ -3,7 +3,9 @@ from pathlib import Path
 import numpy as np
 
 from helpers import load_csv_data
+from implementations import logistic_regression, sigmoid
 from preprocessing import (
+    add_bias,
     apply_imputer,
     apply_scaler,
     fit_imputer,
@@ -150,6 +152,47 @@ def main():
     print("baseline label:", baseline_label)
     for name, value in baseline_metrics.items():
         print(f"baseline {name}: {value}")
+
+
+    # Add the intercept after scaling.
+    tx_fit = add_bias(x_fit_scaled)
+    tx_val = add_bias(x_val_scaled)
+
+    # Convert training labels from -1/+1 to 0/1.
+    y_fit_01 = (y_fit == 1).astype(int)
+
+    # One zero weight per input column.
+    initial_w = np.zeros(tx_fit.shape[1])
+
+    # Train the first logistic regression model.
+    w, train_loss = logistic_regression(
+        y_fit_01,
+        tx_fit,
+        initial_w,
+        max_iters=1000,
+        gamma=0.01,
+    )
+
+    # Calculate validation probabilities.
+    val_probabilities = sigmoid(tx_val @ w)
+
+    # Convert probabilities to -1/+1 predictions.
+    val_predictions = (val_probabilities >= 0.5).astype(int) * 2 - 1
+
+    assert w.shape == (tx_fit.shape[1],)
+    assert np.isfinite(w).all()
+    assert np.isfinite(train_loss)
+    assert np.isfinite(val_probabilities).all()
+    assert np.all(
+        (val_probabilities >= 0) & (val_probabilities <= 1)
+    )
+
+    print("weights shape:", w.shape)
+    print("training loss:", train_loss)
+
+    model_metrics = classification_metrics(y_val, val_predictions)
+    for name, value in model_metrics.items():
+        print(f"logistic {name}: {value}")
 
     print("All checks passed.")
 
