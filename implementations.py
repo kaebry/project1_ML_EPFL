@@ -149,7 +149,7 @@ def logistic_loss(y, tx, w):
         float, the logistic loss of w on the full dataset.
     """
     z = tx @ w
-    return np.mean(np.log(1 + np.exp(z)) - y * z)
+    return np.mean(np.logaddexp(0, z) - y * z)
 
 
 def logistic_gradient(y, tx, w):
