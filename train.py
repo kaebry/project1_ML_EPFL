@@ -1,9 +1,11 @@
+import csv
 from pathlib import Path
 
+import matplotlib.pyplot as plt
 import numpy as np
 
 from helpers import load_csv_data
-from implementations import logistic_regression, sigmoid
+from implementations import logistic_loss, logistic_regression, sigmoid
 from preprocessing import load_feature_names, prepare_data
 
 
@@ -72,6 +74,53 @@ def evaluate_baseline(y_fit, y_val):
     return metrics
 
 
+def save_logistic_history(history, comparison):
+    root = Path(__file__).resolve().parent
+    results_dir = root / "results"
+    figures_dir = root / "figures"
+    results_dir.mkdir(exist_ok=True)
+    figures_dir.mkdir(exist_ok=True)
+
+    # Save the losses and the validation metrics for the compared iterations.
+    history_path = results_dir / "logistic_learning_curve.csv"
+    with history_path.open("w", newline="") as file:
+        writer = csv.writer(file)
+        writer.writerow(["iteration", "training_loss", "validation_loss"])
+        writer.writerows(history)
+
+    comparison_path = results_dir / "logistic_iteration_comparison.csv"
+    with comparison_path.open("w", newline="") as file:
+        writer = csv.DictWriter(file, fieldnames=[
+            "iteration", "gamma", "threshold", "training_loss", "validation_loss",
+            "tp", "tn", "fp", "fn", "accuracy", "precision", "recall", "f1",
+        ])
+        writer.writeheader()
+        writer.writerows(comparison)
+
+    iterations, training_losses, validation_losses = zip(*history)
+    fig, ax = plt.subplots(figsize=(8, 5))
+    ax.plot(iterations, training_losses, label="Training", color="tab:blue")
+    ax.plot(
+        iterations, validation_losses, label="Validation",
+        color="tab:orange", linestyle="--",
+    )
+    if iterations[-1] > 1000:
+        ax.axvline(1000, color="gray", linestyle=":", label="Previous: 1000 steps")
+    ax.set_xlabel("Iteration")
+    ax.set_ylabel("Mean logistic loss")
+    ax.set_title("Logistic regression learning curves")
+    ax.grid(alpha=0.2)
+    ax.legend()
+    fig.tight_layout()
+    plot_path = figures_dir / "logistic_loss.png"
+    fig.savefig(plot_path, dpi=150)
+    plt.close(fig)
+
+    print("Saved learning curve:", history_path, flush=True)
+    print("Saved iteration comparison:", comparison_path, flush=True)
+    print("Saved loss plot:", plot_path, flush=True)
+
+
 def train_logistic(
     tx_fit, y_fit, tx_val, y_val, max_iters=1000, gamma=0.01, threshold=0.5
 ):
@@ -80,6 +129,7 @@ def train_logistic(
 
     # Convert training labels from -1/+1 to 0/1.
     y_fit_01 = (y_fit == 1).astype(int)
+    y_val_01 = (y_val == 1).astype(int)
 
     # One zero weight per input column.
     initial_w = np.zeros(tx_fit.shape[1])
@@ -89,13 +139,37 @@ def train_logistic(
     w, train_loss = logistic_regression(
         y_fit_01, tx_fit, initial_w, 0, gamma
     )
+    val_loss = logistic_loss(y_val_01, tx_val, w)
+    history = [(0, train_loss, val_loss)]
+    comparison = []
     print_progress(0, max_iters, train_loss)
 
     # Continue from the current weights and update progress every 20 steps.
     for start in range(0, max_iters, 20):
         steps = min(20, max_iters - start)
         w, train_loss = logistic_regression(y_fit_01, tx_fit, w, steps, gamma)
-        print_progress(start + steps, max_iters, train_loss)
+        completed = start + steps
+        print_progress(completed, max_iters, train_loss)
+
+        # Validation measures progress; it does not update the weights.
+        if completed % 100 == 0 or completed == max_iters:
+            val_loss = logistic_loss(y_val_01, tx_val, w)
+            assert np.isfinite(val_loss)
+            history.append((completed, train_loss, val_loss))
+            print(
+                f"\nStep {completed}: training loss={train_loss:.5f}, "
+                f"validation loss={val_loss:.5f}",
+                flush=True,
+            )
+
+        # Keep the 1000-step result for comparison with the final result.
+        if completed == 1000 and max_iters > 1000:
+            predictions = np.where(sigmoid(tx_val @ w) >= threshold, 1, -1)
+            comparison.append({
+                "iteration": completed, "gamma": gamma, "threshold": threshold,
+                "training_loss": train_loss, "validation_loss": val_loss,
+                **classification_metrics(y_val, predictions),
+            })
 
     assert w.shape == (tx_fit.shape[1],)
     assert np.isfinite(w).all()
@@ -119,8 +193,16 @@ def train_logistic(
 
     print("weights shape:", w.shape)
     print("training loss:", train_loss)
+    print("validation loss:", val_loss)
     print_metrics("logistic training", train_metrics)
     print_metrics("logistic validation", val_metrics)
+
+    comparison.append({
+        "iteration": max_iters, "gamma": gamma, "threshold": threshold,
+        "training_loss": train_loss, "validation_loss": val_loss,
+        **val_metrics,
+    })
+    save_logistic_history(history, comparison)
 
     return w, train_loss
 
@@ -153,7 +235,10 @@ def main():
 
     print("\nEvaluating baseline...", flush=True)
     evaluate_baseline(y_fit, y_val)
-    train_logistic(tx_fit, y_fit, tx_val, y_val)
+    train_logistic(
+        tx_fit, y_fit, tx_val, y_val,
+        max_iters=5000, gamma=0.01, threshold=0.5,
+    )
     print("\nFinished.", flush=True)
 
 
