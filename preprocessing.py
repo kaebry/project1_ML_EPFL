@@ -204,6 +204,40 @@ def split_data(
     return x_fit, y_fit, x_val, y_val
 
 
+def transform_features(x_fit, x_other, use_one_hot=False, max_categories=10):
+    """Learn every step from x_fit, apply the same steps to both, add bias."""
+    # Each step below reuses the names x_fit and x_other, so the previous
+    # large arrays can be freed before the next step.
+    if use_one_hot:
+        # Learn the categories from x_fit, then encode both sets.
+        categories = fit_one_hot(x_fit, max_categories)
+        print(
+            f"  One-hot encoding {len(categories)} columns "
+            f"with at most {max_categories} values...",
+            flush=True,
+        )
+        x_fit = apply_one_hot(x_fit, categories)
+        x_other = apply_one_hot(x_other, categories)
+
+    # Learn medians from x_fit, then clean both sets.
+    print("  Filling missing values...", flush=True)
+    keep_columns, medians = fit_imputer(x_fit)
+    x_fit = apply_imputer(x_fit, keep_columns, medians)
+    x_other = apply_imputer(x_other, keep_columns, medians)
+
+    # Learn scaling from x_fit, then scale both sets.
+    print("  Standardizing features...", flush=True)
+    means, stds = fit_scaler(x_fit)
+    x_fit = apply_scaler(x_fit, means, stds)
+    x_other = apply_scaler(x_other, means, stds)
+    assert np.isfinite(x_fit).all()
+    assert np.isfinite(x_other).all()
+
+    # Add the intercept after scaling.
+    print("  Adding bias...", flush=True)
+    return add_bias(x_fit), add_bias(x_other)
+
+
 def prepare_data(
     x, y, validation_fraction=0.20, seed=42,
     feature_names=None, use_feature_rules=False,
@@ -213,37 +247,21 @@ def prepare_data(
     x_fit, y_fit, x_val, y_val = split_data(
         x, y, validation_fraction, seed, feature_names, use_feature_rules
     )
-
-    # Each step below reuses the names x_fit and x_val, so the previous
-    # large arrays can be freed before the next step.
-    if use_one_hot:
-        # Learn the categories from training data, then encode both sets.
-        categories = fit_one_hot(x_fit, max_categories)
-        print(
-            f"  One-hot encoding {len(categories)} columns "
-            f"with at most {max_categories} values...",
-            flush=True,
-        )
-        x_fit = apply_one_hot(x_fit, categories)
-        x_val = apply_one_hot(x_val, categories)
-
-    # Learn medians from training data, then clean both sets.
-    print("  Filling missing values...", flush=True)
-    keep_columns, medians = fit_imputer(x_fit)
-    x_fit = apply_imputer(x_fit, keep_columns, medians)
-    x_val = apply_imputer(x_val, keep_columns, medians)
-
-    # Learn scaling from training data, then scale both sets.
-    print("  Standardizing features...", flush=True)
-    means, stds = fit_scaler(x_fit)
-    x_fit = apply_scaler(x_fit, means, stds)
-    x_val = apply_scaler(x_val, means, stds)
-    assert np.isfinite(x_fit).all()
-    assert np.isfinite(x_val).all()
-
-    # Add the intercept after scaling.
-    print("  Adding bias...", flush=True)
-    tx_fit = add_bias(x_fit)
-    tx_val = add_bias(x_val)
-
+    tx_fit, tx_val = transform_features(x_fit, x_val, use_one_hot, max_categories)
     return tx_fit, y_fit, tx_val, y_val
+
+
+def prepare_train_test(
+    x_train, x_test, feature_names=None, use_feature_rules=False,
+    use_one_hot=False, max_categories=10,
+):
+    """Learn the preprocessing from all labelled rows and apply it to x_test."""
+    if use_feature_rules:
+        if feature_names is None:
+            raise ValueError("Feature names are required for feature rules.")
+        # The reviewed rules are fixed, so both sets get the same rules.
+        print("  Cleaning reviewed features...", flush=True)
+        x_train = clean_known_features(x_train, feature_names)
+        x_test = clean_known_features(x_test, feature_names)
+
+    return transform_features(x_train, x_test, use_one_hot, max_categories)

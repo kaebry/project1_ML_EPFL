@@ -215,18 +215,26 @@ def fit_boosting(
     """Train boosted trees on 0/1 labels.
 
     Validation rows never change a tree; their loss is recorded after each
-    tree so the best number of trees can be chosen afterwards.
+    tree so the best number of trees can be chosen afterwards. Pass None for
+    bins_val and y_val to train without validation (as in run.py); the
+    validation losses are then NaN and all trees are kept.
     """
     rng = np.random.default_rng(seed)
+    has_validation = bins_val is not None
 
     # Start every row from the log-odds of the positive rate.
     positive_rate = np.mean(y_fit)
     base_score = np.log(positive_rate / (1 - positive_rate))
     scores_fit = np.full(len(y_fit), base_score)
-    scores_val = np.full(len(y_val), base_score)
+    if has_validation:
+        scores_val = np.full(len(y_val), base_score)
+
+    def losses():
+        val_loss = boosting_loss(y_val, scores_val) if has_validation else np.nan
+        return boosting_loss(y_fit, scores_fit), val_loss
 
     trees = []
-    history = [(0, boosting_loss(y_fit, scores_fit), boosting_loss(y_val, scores_val))]
+    history = [(0, *losses())]
     for n in range(1, n_trees + 1):
         # Gradient and hessian of the logistic loss at the current scores.
         probabilities = sigmoid(scores_fit)
@@ -242,17 +250,17 @@ def fit_boosting(
         trees.append(tree)
 
         scores_fit += learning_rate * predict_tree(tree, bins_fit)
-        scores_val += learning_rate * predict_tree(tree, bins_val)
-        history.append(
-            (n, boosting_loss(y_fit, scores_fit), boosting_loss(y_val, scores_val))
-        )
-        print(
-            f"\rTree {n}/{n_trees}: training loss={history[-1][1]:.5f}, "
-            f"validation loss={history[-1][2]:.5f}",
-            end="\n" if n == n_trees else "",
-            flush=True,
-        )
+        if has_validation:
+            scores_val += learning_rate * predict_tree(tree, bins_val)
+        history.append((n, *losses()))
 
-    # The number of trees with the lowest validation loss.
+        message = f"\rTree {n}/{n_trees}: training loss={history[-1][1]:.5f}"
+        if has_validation:
+            message += f", validation loss={history[-1][2]:.5f}"
+        print(message, end="\n" if n == n_trees else "", flush=True)
+
+    # The number of trees with the lowest validation loss (all without validation).
+    if not has_validation:
+        return trees, base_score, history, n_trees
     best_n_trees = int(np.argmin([val_loss for _, _, val_loss in history]))
     return trees, base_score, history, best_n_trees
