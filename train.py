@@ -5,7 +5,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from helpers import load_csv_data
-from implementations import logistic_loss, logistic_regression, sigmoid
+from implementations import (
+    logistic_loss, logistic_regression, ridge_regression, sigmoid,
+)
 from preprocessing import load_feature_names, prepare_data
 
 
@@ -74,17 +76,15 @@ def evaluate_baseline(y_fit, y_val):
     return metrics
 
 
-def evaluate_thresholds(y_true, probabilities):
-    if not np.isfinite(probabilities).all() or np.any(
-        (probabilities < 0) | (probabilities > 1)
-    ):
-        raise ValueError("Expected finite probabilities between 0 and 1.")
+def evaluate_thresholds(y_true, scores, thresholds):
+    # Scores can be probabilities or unrestricted linear scores.
+    if not np.isfinite(scores).all():
+        raise ValueError("Expected finite scores.")
 
     results = []
-    # Compare 0.01, 0.02, ..., 0.99 using the same probabilities.
-    for percent in range(1, 100):
-        threshold = percent / 100
-        predictions = np.where(probabilities >= threshold, 1, -1)
+    # Compare all thresholds using the same scores, without retraining.
+    for threshold in thresholds:
+        predictions = np.where(scores >= threshold, 1, -1)
         results.append({
             "threshold": threshold,
             **classification_metrics(y_true, predictions),
@@ -93,14 +93,15 @@ def evaluate_thresholds(y_true, probabilities):
     return results
 
 
-def save_threshold_results(results):
+def save_threshold_results(results, name, title, default_threshold):
     root = Path(__file__).resolve().parent
     results_dir = root / "results"
     figures_dir = root / "figures"
     results_dir.mkdir(exist_ok=True)
     figures_dir.mkdir(exist_ok=True)
 
-    csv_path = results_dir / "logistic_threshold_comparison.csv"
+    # The name keeps each model's files separate, e.g. "logistic" or "ridge".
+    csv_path = results_dir / f"{name}_threshold_comparison.csv"
     with csv_path.open("w", newline="") as file:
         writer = csv.DictWriter(file, fieldnames=[
             "threshold", "tp", "tn", "fp", "fn",
@@ -109,27 +110,32 @@ def save_threshold_results(results):
         writer.writeheader()
         writer.writerows(results)
 
-    default = next(row for row in results if row["threshold"] == 0.5)
+    default = next(
+        row for row in results if row["threshold"] == default_threshold
+    )
     best = max(results, key=lambda row: row["f1"])
     thresholds = [row["threshold"] for row in results]
 
     fig, ax = plt.subplots(figsize=(9, 5))
     for metric in ["precision", "recall", "f1"]:
         ax.plot(thresholds, [row[metric] for row in results], label=metric)
-    ax.axvline(0.5, color="gray", linestyle=":", label="Default: 0.50")
+    ax.axvline(
+        default_threshold, color="gray", linestyle=":",
+        label=f"Default: {default_threshold:.2f}",
+    )
     ax.axvline(
         best["threshold"], color="tab:green", linestyle="--",
         label=f"Best tested: {best['threshold']:.2f}",
     )
-    ax.set_xlim(0, 1)
+    ax.set_xlim(min(thresholds), max(thresholds))
     ax.set_ylim(0, 1.05)
     ax.set_xlabel("Threshold")
     ax.set_ylabel("Validation score")
-    ax.set_title("Logistic regression threshold comparison")
+    ax.set_title(f"{title} threshold comparison")
     ax.grid(alpha=0.2)
     ax.legend()
     fig.tight_layout()
-    plot_path = figures_dir / "logistic_thresholds.png"
+    plot_path = figures_dir / f"{name}_thresholds.png"
     fig.savefig(plot_path, dpi=150)
     plt.close(fig)
 
@@ -277,10 +283,137 @@ def train_logistic(
     save_logistic_history(history, comparison)
 
     # Tune the decision threshold on validation after training is complete.
-    threshold_results = evaluate_thresholds(y_val, val_probabilities)
-    save_threshold_results(threshold_results)
+    assert np.all((val_probabilities >= 0) & (val_probabilities <= 1))
+    # Probability thresholds 0.01, 0.02, ..., 0.99.
+    thresholds = [percent / 100 for percent in range(1, 100)]
+    threshold_results = evaluate_thresholds(y_val, val_probabilities, thresholds)
+    save_threshold_results(
+        threshold_results, "logistic", "Logistic regression", 0.5
+    )
 
     return w, train_loss
+
+
+def save_ridge_results(rows):
+    root = Path(__file__).resolve().parent
+    results_dir = root / "results"
+    figures_dir = root / "figures"
+    results_dir.mkdir(exist_ok=True)
+    figures_dir.mkdir(exist_ok=True)
+
+    # One row per lambda, with metrics at that lambda's best threshold.
+    csv_path = results_dir / "ridge_lambda_comparison.csv"
+    with csv_path.open("w", newline="") as file:
+        writer = csv.DictWriter(file, fieldnames=[
+            "lambda", "training_loss", "validation_loss", "default_f1",
+            "threshold", "tp", "tn", "fp", "fn",
+            "accuracy", "precision", "recall", "f1",
+        ])
+        writer.writeheader()
+        writer.writerows(rows)
+
+    lambdas = [row["lambda"] for row in rows]
+    fig, (loss_ax, f1_ax) = plt.subplots(1, 2, figsize=(11, 4.5))
+
+    # Left: loss without the penalty term, to see over- or underfitting.
+    loss_ax.plot(
+        lambdas, [row["training_loss"] for row in rows],
+        marker="o", label="Training", color="tab:blue",
+    )
+    loss_ax.plot(
+        lambdas, [row["validation_loss"] for row in rows],
+        marker="o", label="Validation", color="tab:orange", linestyle="--",
+    )
+    loss_ax.set_xscale("log")
+    loss_ax.set_xlabel("lambda")
+    loss_ax.set_ylabel("MSE with factor 1/2 (-1/+1 targets)")
+    loss_ax.set_title("Ridge regression loss")
+    loss_ax.grid(alpha=0.2)
+    loss_ax.legend()
+
+    # Right: validation F1 at score 0 and at the best tested threshold.
+    f1_ax.plot(
+        lambdas, [row["default_f1"] for row in rows],
+        marker="o", label="Threshold 0", color="gray",
+    )
+    f1_ax.plot(
+        lambdas, [row["f1"] for row in rows],
+        marker="o", label="Best tested threshold", color="tab:green",
+    )
+    f1_ax.set_xscale("log")
+    f1_ax.set_ylim(0, 1)
+    f1_ax.set_xlabel("lambda")
+    f1_ax.set_ylabel("Validation F1")
+    f1_ax.set_title("Ridge regression validation F1")
+    f1_ax.grid(alpha=0.2)
+    f1_ax.legend()
+
+    fig.tight_layout()
+    plot_path = figures_dir / "ridge_lambda.png"
+    fig.savefig(plot_path, dpi=150)
+    plt.close(fig)
+
+    print("Saved lambda comparison:", csv_path, flush=True)
+    print("Saved lambda plot:", plot_path, flush=True)
+
+
+def train_ridge(tx_fit, y_fit, tx_val, y_val, lambdas):
+    if len(lambdas) == 0 or min(lambdas) <= 0:
+        raise ValueError("Expected at least one positive lambda.")
+
+    # Ridge gives linear scores, not probabilities, so we tune a score
+    # threshold: -1.00, -0.99, ..., 1.00 for the -1/+1 targets.
+    thresholds = [step / 100 for step in range(-100, 101)]
+
+    print("\nTraining ridge regression...", flush=True)
+    rows = []
+    weights = []
+    all_threshold_results = []
+    for lambda_ in lambdas:
+        # Fit directly on the -1/+1 labels; validation is not used here.
+        w, train_loss = ridge_regression(y_fit, tx_fit, lambda_)
+        assert w.shape == (tx_fit.shape[1],)
+        assert np.isfinite(w).all()
+
+        val_scores = tx_val @ w
+        val_loss = 0.5 * np.mean((y_val - val_scores) ** 2)
+
+        # Compare the natural threshold 0 with the best tested threshold.
+        threshold_results = evaluate_thresholds(y_val, val_scores, thresholds)
+        default = next(row for row in threshold_results if row["threshold"] == 0)
+        best = max(threshold_results, key=lambda row: row["f1"])
+
+        rows.append({
+            "lambda": lambda_, "training_loss": train_loss,
+            "validation_loss": val_loss, "default_f1": default["f1"],
+            **best,
+        })
+        weights.append(w)
+        all_threshold_results.append(threshold_results)
+        print(
+            f"lambda={lambda_:g}: training loss={train_loss:.5f}, "
+            f"validation loss={val_loss:.5f}, F1 at 0={default['f1']:.4f}, "
+            f"best threshold={best['threshold']:.2f}, best F1={best['f1']:.4f}",
+            flush=True,
+        )
+
+    # Choose the lambda with the highest tuned validation F1.
+    best_index = int(np.argmax([row["f1"] for row in rows]))
+    best_lambda = rows[best_index]["lambda"]
+    print(
+        f"\nSelected lambda: {best_lambda:g} "
+        f"(validation F1={rows[best_index]['f1']:.4f}, "
+        f"threshold={rows[best_index]['threshold']:.2f})",
+        flush=True,
+    )
+
+    save_ridge_results(rows)
+    save_threshold_results(
+        all_threshold_results[best_index], "ridge",
+        f"Ridge regression (lambda={best_lambda:g})", 0.0,
+    )
+
+    return weights[best_index], rows[best_index]["training_loss"]
 
 
 def main():
@@ -288,6 +421,9 @@ def main():
     sub_sample = False
     # Set False to use the original preprocessing.
     use_feature_rules = True
+    # Choose which model experiments to run.
+    run_logistic = False
+    run_ridge = True
 
     # Load the data once.
     print("Loading CSV files...", flush=True)
@@ -298,6 +434,8 @@ def main():
     feature_names = load_feature_names(data_path / "x_train.csv")
     print("sub_sample:", sub_sample)
     print("use_feature_rules:", use_feature_rules)
+    print("run_logistic:", run_logistic)
+    print("run_ridge:", run_ridge)
     print("labelled rows:", len(y_train))
 
     # Prepare the same training and validation data for all models.
@@ -311,10 +449,16 @@ def main():
 
     print("\nEvaluating baseline...", flush=True)
     evaluate_baseline(y_fit, y_val)
-    train_logistic(
-        tx_fit, y_fit, tx_val, y_val,
-        max_iters=5000, gamma=0.01, threshold=0.5,
-    )
+    if run_logistic:
+        train_logistic(
+            tx_fit, y_fit, tx_val, y_val,
+            max_iters=5000, gamma=0.01, threshold=0.5,
+        )
+    if run_ridge:
+        train_ridge(
+            tx_fit, y_fit, tx_val, y_val,
+            lambdas=[1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1.0],
+        )
     print("\nFinished.", flush=True)
 
 
