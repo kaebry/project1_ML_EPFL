@@ -71,6 +71,47 @@ def clean_known_features(x, feature_names):
     return np.column_stack((x_clean, health_missing, days_missing))
 
 
+def fit_one_hot(x, max_categories=10):
+    """Find columns with few distinct training values and store those values."""
+    categories = {}
+    for column in range(x.shape[1]):
+        missing = np.isnan(x[:, column])
+        values = np.unique(x[~missing, column])
+
+        # Small value sets are treated as categories, e.g. codes 1-5, 7 and 9.
+        if 0 < len(values) <= max_categories:
+            categories[column] = (values, bool(np.any(missing)))
+
+    return categories
+
+
+def apply_one_hot(x, categories):
+    """Keep the other columns, then add one 0/1 column per training category."""
+    numeric_columns = [
+        column for column in range(x.shape[1]) if column not in categories
+    ]
+    n_indicators = sum(
+        len(values) + has_missing for values, has_missing in categories.values()
+    )
+
+    # Fill one new array so the large matrix is not copied again.
+    x_encoded = np.empty((len(x), len(numeric_columns) + n_indicators))
+    x_encoded[:, :len(numeric_columns)] = x[:, numeric_columns]
+
+    position = len(numeric_columns)
+    for column, (values, has_missing) in categories.items():
+        for value in values:
+            x_encoded[:, position] = x[:, column] == value
+            position += 1
+        # Missing values get their own column when training had them.
+        # Values never seen in training give zeros in all of this column's indicators.
+        if has_missing:
+            x_encoded[:, position] = np.isnan(x[:, column])
+            position += 1
+
+    return x_encoded
+
+
 def fit_imputer(x):
     # Keep columns with at least one value.
     keep_columns = ~np.all(np.isnan(x), axis=0)
@@ -85,9 +126,15 @@ def fit_imputer(x):
 
 
 def apply_imputer(x, keep_columns, medians):
-    # Drop empty columns and fill missing values.
-    x_clean = x[:, keep_columns].copy()
-    return np.where(np.isnan(x_clean), medians, x_clean)
+    # Drop empty columns; boolean indexing returns a copy, so x is unchanged.
+    x_clean = x[:, keep_columns]
+
+    # Fill each column's missing values with its training median.
+    for column in range(x_clean.shape[1]):
+        values = x_clean[:, column]
+        values[np.isnan(values)] = medians[column]
+
+    return x_clean
 
 
 def fit_scaler(x):
@@ -102,7 +149,10 @@ def fit_scaler(x):
 
 
 def apply_scaler(x, means, stds):
-    return (x - means) / stds
+    # Create one new array and divide it in place to save memory.
+    x_scaled = x - means
+    x_scaled /= stds
+    return x_scaled
 
 
 def add_bias(x):
@@ -113,6 +163,7 @@ def add_bias(x):
 def prepare_data(
     x, y, validation_fraction=0.20, seed=42,
     feature_names=None, use_feature_rules=False,
+    use_one_hot=False, max_categories=10,
 ):
     """Return prepared training and validation arrays."""
     if not 0 < validation_fraction < 1:
@@ -145,23 +196,36 @@ def prepare_data(
         x_fit = clean_known_features(x_fit, feature_names)
         x_val = clean_known_features(x_val, feature_names)
 
+    # Each step below reuses the names x_fit and x_val, so the previous
+    # large arrays can be freed before the next step.
+    if use_one_hot:
+        # Learn the categories from training data, then encode both sets.
+        categories = fit_one_hot(x_fit, max_categories)
+        print(
+            f"  One-hot encoding {len(categories)} columns "
+            f"with at most {max_categories} values...",
+            flush=True,
+        )
+        x_fit = apply_one_hot(x_fit, categories)
+        x_val = apply_one_hot(x_val, categories)
+
     # Learn medians from training data, then clean both sets.
     print("  Filling missing values...", flush=True)
     keep_columns, medians = fit_imputer(x_fit)
-    x_fit_clean = apply_imputer(x_fit, keep_columns, medians)
-    x_val_clean = apply_imputer(x_val, keep_columns, medians)
+    x_fit = apply_imputer(x_fit, keep_columns, medians)
+    x_val = apply_imputer(x_val, keep_columns, medians)
 
     # Learn scaling from training data, then scale both sets.
     print("  Standardizing features...", flush=True)
-    means, stds = fit_scaler(x_fit_clean)
-    x_fit_scaled = apply_scaler(x_fit_clean, means, stds)
-    x_val_scaled = apply_scaler(x_val_clean, means, stds)
-    assert np.isfinite(x_fit_scaled).all()
-    assert np.isfinite(x_val_scaled).all()
+    means, stds = fit_scaler(x_fit)
+    x_fit = apply_scaler(x_fit, means, stds)
+    x_val = apply_scaler(x_val, means, stds)
+    assert np.isfinite(x_fit).all()
+    assert np.isfinite(x_val).all()
 
     # Add the intercept after scaling.
     print("  Adding bias...", flush=True)
-    tx_fit = add_bias(x_fit_scaled)
-    tx_val = add_bias(x_val_scaled)
+    tx_fit = add_bias(x_fit)
+    tx_val = add_bias(x_val)
 
     return tx_fit, y_fit, tx_val, y_val

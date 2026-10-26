@@ -4,7 +4,9 @@ Checked against the [CDC codebook](https://www.cdc.gov/brfss/annual_data/2015/pd
 and our training data.
 
 - `SEQNO` and `_PSU` are identical survey IDs. Try removing both.
-- `_STATE`, `MARITAL` and `EMPLOY1` are categories. Try one-hot encoding later.
+- `_STATE`, `MARITAL` and `EMPLOY1` are categories. `use_one_hot=True` encodes
+  `MARITAL` and `EMPLOY1` (at most 10 values); `_STATE` has 53 values and
+  stays numeric.
 - `SEX`: 1 = male, 2 = female. Can be encoded as 0/1.
 - `GENHLTH`: 1-5 are ordered health ratings; 7 and 9 mean unavailable.
 - `PHYSHLTH`: 88 means zero days; 77 and 99 mean unavailable.
@@ -14,3 +16,8 @@ and our training data.
 
 In `train.py`, `use_feature_rules=True` removes the IDs, fixes the health codes
 and adds two missing indicators. Set it to `False` for the original preprocessing.
+
+From the automatic summary of the training rows: 221 of the 321 features have at
+most 10 distinct values. One-hot encoding gives each code (including 7/9-style
+"don't know" or "refused" codes) and missing values their own column, without
+reviewing every feature by hand.

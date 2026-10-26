@@ -340,8 +340,14 @@ def save_ridge_results(rows):
         lambdas, [row["f1"] for row in rows],
         marker="o", label="Best tested threshold", color="tab:green",
     )
+    # Label only the selected lambda, so the small differences stay readable.
+    best = max(rows, key=lambda row: row["f1"])
+    f1_ax.annotate(
+        f"{best['f1']:.4f}", (best["lambda"], best["f1"]),
+        textcoords="offset points", xytext=(0, 8), ha="center",
+    )
     f1_ax.set_xscale("log")
-    f1_ax.set_ylim(0, 1)
+    f1_ax.set_ylim(0, max(row["f1"] for row in rows) * 1.15)
     f1_ax.set_xlabel("lambda")
     f1_ax.set_ylabel("Validation F1")
     f1_ax.set_title("Ridge regression validation F1")
@@ -357,7 +363,8 @@ def save_ridge_results(rows):
     print("Saved lambda plot:", plot_path, flush=True)
 
 
-def train_ridge(tx_fit, y_fit, tx_val, y_val, lambdas):
+def tune_ridge(tx_fit, y_fit, tx_val, y_val, lambdas):
+    """Fit ridge for each lambda and tune its score threshold on validation."""
     if len(lambdas) == 0 or min(lambdas) <= 0:
         raise ValueError("Expected at least one positive lambda.")
 
@@ -399,6 +406,13 @@ def train_ridge(tx_fit, y_fit, tx_val, y_val, lambdas):
 
     # Choose the lambda with the highest tuned validation F1.
     best_index = int(np.argmax([row["f1"] for row in rows]))
+    return rows, weights, all_threshold_results, best_index
+
+
+def train_ridge(tx_fit, y_fit, tx_val, y_val, lambdas):
+    rows, weights, all_threshold_results, best_index = tune_ridge(
+        tx_fit, y_fit, tx_val, y_val, lambdas
+    )
     best_lambda = rows[best_index]["lambda"]
     print(
         f"\nSelected lambda: {best_lambda:g} "
@@ -416,14 +430,100 @@ def train_ridge(tx_fit, y_fit, tx_val, y_val, lambdas):
     return weights[best_index], rows[best_index]["training_loss"]
 
 
+def save_feature_comparison(rows):
+    root = Path(__file__).resolve().parent
+    results_dir = root / "results"
+    figures_dir = root / "figures"
+    results_dir.mkdir(exist_ok=True)
+    figures_dir.mkdir(exist_ok=True)
+
+    # One row per feature set, with its best lambda and threshold.
+    csv_path = results_dir / "feature_comparison.csv"
+    with csv_path.open("w", newline="") as file:
+        writer = csv.DictWriter(file, fieldnames=[
+            "feature_set", "columns", "lambda", "training_loss",
+            "validation_loss", "default_f1", "threshold", "tp", "tn", "fp",
+            "fn", "accuracy", "precision", "recall", "f1",
+        ])
+        writer.writeheader()
+        writer.writerows(rows)
+
+    labels = [f"{row['feature_set']}\n({row['columns']} columns)" for row in rows]
+    f1_values = [row["f1"] for row in rows]
+
+    # Bars start at zero; the exact values are written on top of each bar.
+    fig, ax = plt.subplots(figsize=(9, 5))
+    bars = ax.bar(labels, f1_values, color="tab:blue", width=0.6)
+    ax.bar_label(bars, labels=[f"{value:.4f}" for value in f1_values], padding=3)
+    ax.set_ylim(0, max(f1_values) * 1.15)
+    ax.set_ylabel("Validation F1 (best lambda and threshold)")
+    ax.set_title("Ridge regression: effect of feature preprocessing")
+    ax.grid(axis="y", alpha=0.2)
+    ax.set_axisbelow(True)
+    fig.tight_layout()
+    plot_path = figures_dir / "feature_comparison.png"
+    fig.savefig(plot_path, dpi=150)
+    plt.close(fig)
+
+    print("\nFeature comparison (ridge, best lambda and threshold each):")
+    print("Feature set           Columns  Lambda   Threshold  Precision  Recall     F1")
+    for row in rows:
+        print(
+            f"{row['feature_set']:<21} {row['columns']:<8} {row['lambda']:<8g} "
+            f"{row['threshold']:<10.2f} {row['precision']:<10.4f} "
+            f"{row['recall']:<10.4f} {row['f1']:.4f}",
+            flush=True,
+        )
+    print("Saved feature comparison:", csv_path, flush=True)
+    print("Saved feature comparison plot:", plot_path, flush=True)
+
+
+def compare_feature_sets(x, y, feature_names, lambdas):
+    # Same split, model and lambdas; only the preprocessing changes.
+    feature_sets = [
+        # (name, use_feature_rules, use_one_hot)
+        ("original", False, False),
+        ("reviewed", True, False),
+        ("original + one-hot", False, True),
+        ("reviewed + one-hot", True, True),
+    ]
+
+    rows = []
+    for name, use_feature_rules, use_one_hot in feature_sets:
+        print(f"\nPreparing feature set: {name}", flush=True)
+        tx_fit, y_fit, tx_val, y_val = prepare_data(
+            x, y, feature_names=feature_names,
+            use_feature_rules=use_feature_rules, use_one_hot=use_one_hot,
+        )
+        print("training shape (including bias):", tx_fit.shape)
+
+        ridge_rows, _, _, best_index = tune_ridge(
+            tx_fit, y_fit, tx_val, y_val, lambdas
+        )
+        rows.append({
+            "feature_set": name, "columns": tx_fit.shape[1],
+            **ridge_rows[best_index],
+        })
+
+        # Free the large arrays before preparing the next feature set.
+        del tx_fit, tx_val
+
+    save_feature_comparison(rows)
+    return rows
+
+
 def main():
     # Use False here when we are ready for the full labelled dataset.
     sub_sample = False
     # Set False to use the original preprocessing.
     use_feature_rules = True
-    # Choose which model experiments to run.
+    # Set True to one-hot encode columns with at most 10 distinct values.
+    use_one_hot = False
+    # Choose which experiments to run.
+    run_feature_comparison = True
     run_logistic = False
     run_ridge = True
+    ridge_lambdas = [1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1.0]
 
     # Load the data once.
     print("Loading CSV files...", flush=True)
@@ -434,15 +534,22 @@ def main():
     feature_names = load_feature_names(data_path / "x_train.csv")
     print("sub_sample:", sub_sample)
     print("use_feature_rules:", use_feature_rules)
+    print("use_one_hot:", use_one_hot)
+    print("run_feature_comparison:", run_feature_comparison)
     print("run_logistic:", run_logistic)
     print("run_ridge:", run_ridge)
     print("labelled rows:", len(y_train))
+
+    # Compare feature sets first, before the main arrays use memory.
+    if run_feature_comparison:
+        compare_feature_sets(x_train, y_train, feature_names, ridge_lambdas)
 
     # Prepare the same training and validation data for all models.
     print("\nPreparing training and validation data...", flush=True)
     tx_fit, y_fit, tx_val, y_val = prepare_data(
         x_train, y_train,
         feature_names=feature_names, use_feature_rules=use_feature_rules,
+        use_one_hot=use_one_hot,
     )
     print("training shape (including bias):", tx_fit.shape)
     print("validation shape (including bias):", tx_val.shape)
@@ -455,10 +562,7 @@ def main():
             max_iters=5000, gamma=0.01, threshold=0.5,
         )
     if run_ridge:
-        train_ridge(
-            tx_fit, y_fit, tx_val, y_val,
-            lambdas=[1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1.0],
-        )
+        train_ridge(tx_fit, y_fit, tx_val, y_val, lambdas=ridge_lambdas)
     print("\nFinished.", flush=True)
 
 
