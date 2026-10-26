@@ -160,12 +160,17 @@ def add_bias(x):
     return np.column_stack((np.ones(x.shape[0]), x))
 
 
-def prepare_data(
+def cleaned_feature_names(feature_names):
+    """Names of the columns returned by clean_known_features."""
+    kept_names = [name for name in feature_names if name not in ("SEQNO", "_PSU")]
+    return kept_names + ["GENHLTH_missing", "PHYSHLTH_missing"]
+
+
+def split_data(
     x, y, validation_fraction=0.20, seed=42,
     feature_names=None, use_feature_rules=False,
-    use_one_hot=False, max_categories=10,
 ):
-    """Return prepared training and validation arrays."""
+    """Split the rows and apply the reviewed rules, without filling or scaling."""
     if not 0 < validation_fraction < 1:
         raise ValueError("validation_fraction must be between 0 and 1.")
     if x.ndim != 2 or y.ndim != 1 or len(x) != len(y):
@@ -195,6 +200,19 @@ def prepare_data(
         print("  Cleaning reviewed features...", flush=True)
         x_fit = clean_known_features(x_fit, feature_names)
         x_val = clean_known_features(x_val, feature_names)
+
+    return x_fit, y_fit, x_val, y_val
+
+
+def prepare_data(
+    x, y, validation_fraction=0.20, seed=42,
+    feature_names=None, use_feature_rules=False,
+    use_one_hot=False, max_categories=10,
+):
+    """Return prepared training and validation arrays."""
+    x_fit, y_fit, x_val, y_val = split_data(
+        x, y, validation_fraction, seed, feature_names, use_feature_rules
+    )
 
     # Each step below reuses the names x_fit and x_val, so the previous
     # large arrays can be freed before the next step.

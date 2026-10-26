@@ -4,11 +4,14 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
+from boosting import apply_bins, fit_bins, fit_boosting, predict_boosting
 from helpers import load_csv_data
 from implementations import (
     logistic_loss, logistic_regression, ridge_regression, sigmoid,
 )
-from preprocessing import load_feature_names, prepare_data
+from preprocessing import (
+    cleaned_feature_names, load_feature_names, prepare_data, split_data,
+)
 
 
 def classification_metrics(y_true, y_pred):
@@ -512,6 +515,204 @@ def compare_feature_sets(x, y, feature_names, lambdas):
     return rows
 
 
+def save_boosting_results(rows, histories):
+    root = Path(__file__).resolve().parent
+    results_dir = root / "results"
+    figures_dir = root / "figures"
+    results_dir.mkdir(exist_ok=True)
+    figures_dir.mkdir(exist_ok=True)
+
+    # One row per depth, at its best number of trees and threshold.
+    comparison_path = results_dir / "boosting_depth_comparison.csv"
+    with comparison_path.open("w", newline="") as file:
+        writer = csv.DictWriter(file, fieldnames=[
+            "depth", "n_trees", "training_loss", "validation_loss",
+            "threshold", "tp", "tn", "fp", "fn",
+            "accuracy", "precision", "recall", "f1",
+        ])
+        writer.writeheader()
+        writer.writerows(rows)
+
+    # Losses after every tree, for every depth.
+    curve_path = results_dir / "boosting_learning_curve.csv"
+    with curve_path.open("w", newline="") as file:
+        writer = csv.writer(file)
+        writer.writerow(["depth", "trees", "training_loss", "validation_loss"])
+        for depth, history in histories.items():
+            writer.writerows((depth, *record) for record in history)
+
+    # Ordered depths use one blue from light to dark; dashed = training.
+    blues = ["#6baed6", "#2171b5", "#08306b", "#041a3a"]
+    fig, ax = plt.subplots(figsize=(8, 5))
+    for color, row in zip(blues, rows):
+        trees, training_losses, validation_losses = zip(*histories[row["depth"]])
+        ax.plot(
+            trees, validation_losses, color=color,
+            label=f"Depth {row['depth']}, validation",
+        )
+        ax.plot(
+            trees, training_losses, color=color, linestyle="--",
+            label=f"Depth {row['depth']}, training",
+        )
+        # Mark the number of trees with the lowest validation loss.
+        ax.plot(
+            row["n_trees"], row["validation_loss"], marker="o",
+            markersize=8, color=color,
+        )
+    # Leave out the first trees, whose large losses would hide the differences.
+    all_losses = [
+        loss for history in histories.values()
+        for _, train_loss, val_loss in history[10:]
+        for loss in (train_loss, val_loss)
+    ]
+    if all_losses:
+        ax.set_ylim(min(all_losses) * 0.995, max(all_losses) * 1.005)
+    ax.set_xlabel("Number of trees")
+    ax.set_ylabel("Mean logistic loss")
+    ax.set_title("Boosted trees learning curves (dot: lowest validation loss)")
+    ax.grid(alpha=0.2)
+    ax.legend()
+    fig.tight_layout()
+    plot_path = figures_dir / "boosting_loss.png"
+    fig.savefig(plot_path, dpi=150)
+    plt.close(fig)
+
+    print("\nBoosted trees comparison (best number of trees and threshold each):")
+    print("Depth  Trees  Validation loss  Threshold  Precision  Recall     F1")
+    for row in rows:
+        print(
+            f"{row['depth']:<6} {row['n_trees']:<6} "
+            f"{row['validation_loss']:<16.5f} {row['threshold']:<10.2f} "
+            f"{row['precision']:<10.4f} {row['recall']:<10.4f} {row['f1']:.4f}",
+            flush=True,
+        )
+    print("Saved depth comparison:", comparison_path, flush=True)
+    print("Saved learning curves:", curve_path, flush=True)
+    print("Saved loss plot:", plot_path, flush=True)
+
+
+def save_feature_importance(trees, feature_names, top=15):
+    root = Path(__file__).resolve().parent
+    results_dir = root / "results"
+    figures_dir = root / "figures"
+    results_dir.mkdir(exist_ok=True)
+    figures_dir.mkdir(exist_ok=True)
+
+    # Importance = total loss reduction (gain) of all splits on a feature.
+    importance = np.zeros(len(feature_names))
+    for tree in trees:
+        internal = tree["feature"] >= 0
+        np.add.at(importance, tree["feature"][internal], tree["gain"][internal])
+    total = importance.sum()
+    share = importance / total if total > 0 else importance
+    order = np.argsort(importance)[::-1]
+
+    csv_path = results_dir / "boosting_feature_importance.csv"
+    with csv_path.open("w", newline="") as file:
+        writer = csv.writer(file)
+        writer.writerow(["feature", "total_gain", "share"])
+        for index in order:
+            if importance[index] > 0:
+                writer.writerow([feature_names[index], importance[index], share[index]])
+
+    # Show only features the trees used, with the largest bar at the top.
+    shown = np.array([i for i in order[:top] if importance[i] > 0][::-1], dtype=int)
+    fig, ax = plt.subplots(figsize=(8, 6))
+    bars = ax.barh(
+        [feature_names[index] for index in shown], 100 * share[shown],
+        color="tab:blue", height=0.6,
+    )
+    ax.bar_label(bars, labels=[f"{100 * share[i]:.1f}%" for i in shown], padding=3)
+    ax.set_xlim(0, 100 * share[shown].max() * 1.15 if len(shown) > 0 else 1)
+    ax.set_xlabel("Share of total split gain (%)")
+    ax.set_title(f"Boosted trees: top {len(shown)} features")
+    ax.grid(axis="x", alpha=0.2)
+    ax.set_axisbelow(True)
+    fig.tight_layout()
+    plot_path = figures_dir / "boosting_feature_importance.png"
+    fig.savefig(plot_path, dpi=150)
+    plt.close(fig)
+
+    print("Saved feature importance:", csv_path, flush=True)
+    print("Saved feature importance plot:", plot_path, flush=True)
+
+
+def train_boosting(
+    x_fit, y_fit, x_val, y_val, feature_names, depths,
+    n_trees=400, learning_rate=0.1,
+):
+    # Trees split on raw values, so no filling, scaling or one-hot is needed.
+    print("\nBinning features for boosted trees...", flush=True)
+    edges = fit_bins(x_fit)
+    bins_fit = apply_bins(x_fit, edges)
+    bins_val = apply_bins(x_val, edges)
+
+    # Convert labels from -1/+1 to 0/1 for the logistic loss.
+    y_fit_01 = (y_fit == 1).astype(float)
+    y_val_01 = (y_val == 1).astype(float)
+    # Probability thresholds 0.01, 0.02, ..., 0.99.
+    thresholds = [percent / 100 for percent in range(1, 100)]
+
+    rows = []
+    histories = {}
+    models = []
+    for depth in depths:
+        print(
+            f"\nTraining boosted trees (depth {depth}, up to {n_trees} trees)...",
+            flush=True,
+        )
+        trees, base_score, history, best_n_trees = fit_boosting(
+            bins_fit, y_fit_01, bins_val, y_val_01,
+            n_trees=n_trees, learning_rate=learning_rate, max_depth=depth,
+        )
+        histories[depth] = history
+
+        # Keep the number of trees with the lowest validation loss.
+        trees = trees[:best_n_trees]
+        val_probabilities = sigmoid(
+            predict_boosting(trees, base_score, learning_rate, bins_val)
+        )
+        threshold_results = evaluate_thresholds(
+            y_val, val_probabilities, thresholds
+        )
+        best = max(threshold_results, key=lambda row: row["f1"])
+
+        rows.append({
+            "depth": depth, "n_trees": best_n_trees,
+            "training_loss": history[best_n_trees][1],
+            "validation_loss": history[best_n_trees][2],
+            **best,
+        })
+        models.append((trees, base_score, threshold_results))
+        print(
+            f"depth={depth}: best number of trees={best_n_trees}, "
+            f"validation loss={history[best_n_trees][2]:.5f}, "
+            f"best threshold={best['threshold']:.2f}, best F1={best['f1']:.4f}",
+            flush=True,
+        )
+
+    # Choose the depth with the highest tuned validation F1.
+    best_index = int(np.argmax([row["f1"] for row in rows]))
+    best_row = rows[best_index]
+    trees, base_score, threshold_results = models[best_index]
+    print(
+        f"\nSelected depth: {best_row['depth']} with {best_row['n_trees']} trees "
+        f"(validation F1={best_row['f1']:.4f}, "
+        f"threshold={best_row['threshold']:.2f})",
+        flush=True,
+    )
+
+    save_boosting_results(rows, histories)
+    save_threshold_results(
+        threshold_results, "boosting",
+        f"Boosted trees (depth {best_row['depth']}, {best_row['n_trees']} trees)",
+        0.5,
+    )
+    save_feature_importance(trees, feature_names)
+
+    return trees, base_score, best_row
+
+
 def main():
     # Use False here when we are ready for the full labelled dataset.
     sub_sample = False
@@ -520,10 +721,12 @@ def main():
     # Set True to one-hot encode columns with at most 10 distinct values.
     use_one_hot = False
     # Choose which experiments to run.
-    run_feature_comparison = True
+    run_feature_comparison = False
     run_logistic = False
-    run_ridge = True
+    run_ridge = False
+    run_boosting = True
     ridge_lambdas = [1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1.0]
+    boosting_depths = [1, 3, 5]
 
     # Load the data once.
     print("Loading CSV files...", flush=True)
@@ -538,6 +741,7 @@ def main():
     print("run_feature_comparison:", run_feature_comparison)
     print("run_logistic:", run_logistic)
     print("run_ridge:", run_ridge)
+    print("run_boosting:", run_boosting)
     print("labelled rows:", len(y_train))
 
     # Compare feature sets first, before the main arrays use memory.
@@ -563,6 +767,21 @@ def main():
         )
     if run_ridge:
         train_ridge(tx_fit, y_fit, tx_val, y_val, lambdas=ridge_lambdas)
+    if run_boosting:
+        # Same split, but raw values with missing entries kept as NaN.
+        print("\nSplitting raw data for boosted trees...", flush=True)
+        x_fit_raw, y_fit_raw, x_val_raw, y_val_raw = split_data(
+            x_train, y_train,
+            feature_names=feature_names, use_feature_rules=use_feature_rules,
+        )
+        tree_feature_names = (
+            cleaned_feature_names(feature_names) if use_feature_rules
+            else feature_names
+        )
+        train_boosting(
+            x_fit_raw, y_fit_raw, x_val_raw, y_val_raw, tree_feature_names,
+            depths=boosting_depths, n_trees=400, learning_rate=0.1,
+        )
     print("\nFinished.", flush=True)
 
 
