@@ -74,6 +74,78 @@ def evaluate_baseline(y_fit, y_val):
     return metrics
 
 
+def evaluate_thresholds(y_true, probabilities):
+    if not np.isfinite(probabilities).all() or np.any(
+        (probabilities < 0) | (probabilities > 1)
+    ):
+        raise ValueError("Expected finite probabilities between 0 and 1.")
+
+    results = []
+    # Compare 0.01, 0.02, ..., 0.99 using the same probabilities.
+    for percent in range(1, 100):
+        threshold = percent / 100
+        predictions = np.where(probabilities >= threshold, 1, -1)
+        results.append({
+            "threshold": threshold,
+            **classification_metrics(y_true, predictions),
+        })
+
+    return results
+
+
+def save_threshold_results(results):
+    root = Path(__file__).resolve().parent
+    results_dir = root / "results"
+    figures_dir = root / "figures"
+    results_dir.mkdir(exist_ok=True)
+    figures_dir.mkdir(exist_ok=True)
+
+    csv_path = results_dir / "logistic_threshold_comparison.csv"
+    with csv_path.open("w", newline="") as file:
+        writer = csv.DictWriter(file, fieldnames=[
+            "threshold", "tp", "tn", "fp", "fn",
+            "accuracy", "precision", "recall", "f1",
+        ])
+        writer.writeheader()
+        writer.writerows(results)
+
+    default = next(row for row in results if row["threshold"] == 0.5)
+    best = max(results, key=lambda row: row["f1"])
+    thresholds = [row["threshold"] for row in results]
+
+    fig, ax = plt.subplots(figsize=(9, 5))
+    for metric in ["precision", "recall", "f1"]:
+        ax.plot(thresholds, [row[metric] for row in results], label=metric)
+    ax.axvline(0.5, color="gray", linestyle=":", label="Default: 0.50")
+    ax.axvline(
+        best["threshold"], color="tab:green", linestyle="--",
+        label=f"Best tested: {best['threshold']:.2f}",
+    )
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1.05)
+    ax.set_xlabel("Threshold")
+    ax.set_ylabel("Validation score")
+    ax.set_title("Logistic regression threshold comparison")
+    ax.grid(alpha=0.2)
+    ax.legend()
+    fig.tight_layout()
+    plot_path = figures_dir / "logistic_thresholds.png"
+    fig.savefig(plot_path, dpi=150)
+    plt.close(fig)
+
+    print("\nValidation threshold comparison:", flush=True)
+    print("Choice        Threshold  Precision  Recall     F1         Accuracy")
+    for name, row in [("Default", default), ("Best tested", best)]:
+        print(
+            f"{name:<13} {row['threshold']:<10.2f} "
+            f"{row['precision']:<10.4f} {row['recall']:<10.4f} "
+            f"{row['f1']:<10.4f} {row['accuracy']:.4f}",
+            flush=True,
+        )
+    print("Saved threshold comparison:", csv_path, flush=True)
+    print("Saved threshold plot:", plot_path, flush=True)
+
+
 def save_logistic_history(history, comparison):
     root = Path(__file__).resolve().parent
     results_dir = root / "results"
@@ -203,6 +275,10 @@ def train_logistic(
         **val_metrics,
     })
     save_logistic_history(history, comparison)
+
+    # Tune the decision threshold on validation after training is complete.
+    threshold_results = evaluate_thresholds(y_val, val_probabilities)
+    save_threshold_results(threshold_results)
 
     return w, train_loss
 
