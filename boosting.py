@@ -46,7 +46,7 @@ def apply_bins(x, edges):
 
 def split_score(g_sum, h_sum, lambda_):
     # Score of one side of a split; larger means a larger loss reduction.
-    return g_sum ** 2 / (h_sum + lambda_)
+    return g_sum**2 / (h_sum + lambda_)
 
 
 def leaf_value(g_sum, h_sum, lambda_):
@@ -95,8 +95,13 @@ def build_tree(bins, g, h, max_depth, lambda_, min_child_weight):
     n_features, n_rows = bins.shape
     n_bins = MISSING_BIN + 1
     tree = {
-        "feature": [], "threshold": [], "missing_left": [],
-        "left": [], "right": [], "value": [], "gain": [],
+        "feature": [],
+        "threshold": [],
+        "missing_left": [],
+        "left": [],
+        "right": [],
+        "value": [],
+        "gain": [],
     }
 
     def add_leaf(g_sum, h_sum):
@@ -126,12 +131,12 @@ def build_tree(bins, g, h, max_depth, lambda_, min_child_weight):
         h_hist = np.empty((n_slots + 1, n_features, n_bins))
         for column in range(n_features):
             index = offset + bins[column]
-            g_hist[:, column] = np.bincount(
-                index, weights=g, minlength=size
-            ).reshape(n_slots + 1, n_bins)
-            h_hist[:, column] = np.bincount(
-                index, weights=h, minlength=size
-            ).reshape(n_slots + 1, n_bins)
+            g_hist[:, column] = np.bincount(index, weights=g, minlength=size).reshape(
+                n_slots + 1, n_bins
+            )
+            h_hist[:, column] = np.bincount(index, weights=h, minlength=size).reshape(
+                n_slots + 1, n_bins
+            )
 
         gains, features, thresholds, missing_lefts = find_best_splits(
             g_hist[:n_slots], h_hist[:n_slots], lambda_, min_child_weight
@@ -209,8 +214,17 @@ def predict_boosting(trees, base_score, learning_rate, bins):
 
 
 def fit_boosting(
-    bins_fit, y_fit, bins_val, y_val, n_trees, learning_rate, max_depth,
-    lambda_=1.0, min_child_weight=1.0, subsample=0.5, seed=42,
+    bins_fit,
+    y_fit,
+    bins_val,
+    y_val,
+    n_trees,
+    learning_rate,
+    max_depth,
+    lambda_=1.0,
+    min_child_weight=1.0,
+    subsample=0.5,
+    seed=42,
 ):
     """Train boosted trees on 0/1 labels.
 
@@ -244,8 +258,12 @@ def fit_boosting(
         # Each tree is grown on a random part of the training rows.
         rows = rng.random(len(y_fit)) < subsample
         tree = build_tree(
-            bins_fit[:, rows], g[rows], h[rows],
-            max_depth, lambda_, min_child_weight,
+            bins_fit[:, rows],
+            g[rows],
+            h[rows],
+            max_depth,
+            lambda_,
+            min_child_weight,
         )
         trees.append(tree)
 

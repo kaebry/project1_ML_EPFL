@@ -29,15 +29,19 @@ def stratified_split(y, validation_fraction=0.20, seed=42):
     n_positive_val = int(validation_fraction * len(positive_indices))
 
     # Combine the validation and training indices.
-    val_indices = np.concatenate((
-        negative_indices[:n_negative_val],
-        positive_indices[:n_positive_val],
-    ))
+    val_indices = np.concatenate(
+        (
+            negative_indices[:n_negative_val],
+            positive_indices[:n_positive_val],
+        )
+    )
 
-    train_indices = np.concatenate((
-        negative_indices[n_negative_val:],
-        positive_indices[n_positive_val:],
-    ))
+    train_indices = np.concatenate(
+        (
+            negative_indices[n_negative_val:],
+            positive_indices[n_positive_val:],
+        )
+    )
 
     # Shuffle the final groups.
     rng.shuffle(train_indices)
@@ -96,7 +100,7 @@ def apply_one_hot(x, categories):
 
     # Fill one new array so the large matrix is not copied again.
     x_encoded = np.empty((len(x), len(numeric_columns) + n_indicators))
-    x_encoded[:, :len(numeric_columns)] = x[:, numeric_columns]
+    x_encoded[:, : len(numeric_columns)] = x[:, numeric_columns]
 
     position = len(numeric_columns)
     for column, (values, has_missing) in categories.items():
@@ -167,8 +171,12 @@ def cleaned_feature_names(feature_names):
 
 
 def split_data(
-    x, y, validation_fraction=0.20, seed=42,
-    feature_names=None, use_feature_rules=False,
+    x,
+    y,
+    validation_fraction=0.20,
+    seed=42,
+    feature_names=None,
+    use_feature_rules=False,
 ):
     """Split the rows and apply the reviewed rules, without filling or scaling."""
     if not 0 < validation_fraction < 1:
@@ -239,9 +247,14 @@ def transform_features(x_fit, x_other, use_one_hot=False, max_categories=10):
 
 
 def prepare_data(
-    x, y, validation_fraction=0.20, seed=42,
-    feature_names=None, use_feature_rules=False,
-    use_one_hot=False, max_categories=10,
+    x,
+    y,
+    validation_fraction=0.20,
+    seed=42,
+    feature_names=None,
+    use_feature_rules=False,
+    use_one_hot=False,
+    max_categories=10,
 ):
     """Return prepared training and validation arrays."""
     x_fit, y_fit, x_val, y_val = split_data(
@@ -252,8 +265,12 @@ def prepare_data(
 
 
 def prepare_train_test(
-    x_train, x_test, feature_names=None, use_feature_rules=False,
-    use_one_hot=False, max_categories=10,
+    x_train,
+    x_test,
+    feature_names=None,
+    use_feature_rules=False,
+    use_one_hot=False,
+    max_categories=10,
 ):
     """Learn the preprocessing from all labelled rows and apply it to x_test."""
     if use_feature_rules:

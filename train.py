@@ -7,10 +7,16 @@ import numpy as np
 from boosting import apply_bins, fit_bins, fit_boosting, predict_boosting
 from helpers import load_csv_data
 from implementations import (
-    logistic_loss, logistic_regression, ridge_regression, sigmoid,
+    logistic_loss,
+    logistic_regression,
+    ridge_regression,
+    sigmoid,
 )
 from preprocessing import (
-    cleaned_feature_names, load_feature_names, prepare_data, split_data,
+    cleaned_feature_names,
+    load_feature_names,
+    prepare_data,
+    split_data,
 )
 
 
@@ -60,8 +66,7 @@ def print_progress(current, total, loss):
     bar = "#" * filled + "-" * (25 - filled)
     end = "\n" if current == total else ""
     print(
-        f"\rTraining [{bar}] {fraction:6.1%} "
-        f"({current}/{total}) loss={loss:.4f}",
+        f"\rTraining [{bar}] {fraction:6.1%} " f"({current}/{total}) loss={loss:.4f}",
         end=end,
         flush=True,
     )
@@ -88,10 +93,12 @@ def evaluate_thresholds(y_true, scores, thresholds):
     # Compare all thresholds using the same scores, without retraining.
     for threshold in thresholds:
         predictions = np.where(scores >= threshold, 1, -1)
-        results.append({
-            "threshold": threshold,
-            **classification_metrics(y_true, predictions),
-        })
+        results.append(
+            {
+                "threshold": threshold,
+                **classification_metrics(y_true, predictions),
+            }
+        )
 
     return results
 
@@ -106,16 +113,24 @@ def save_threshold_results(results, name, title, default_threshold):
     # The name keeps each model's files separate, e.g. "logistic" or "ridge".
     csv_path = results_dir / f"{name}_threshold_comparison.csv"
     with csv_path.open("w", newline="") as file:
-        writer = csv.DictWriter(file, fieldnames=[
-            "threshold", "tp", "tn", "fp", "fn",
-            "accuracy", "precision", "recall", "f1",
-        ])
+        writer = csv.DictWriter(
+            file,
+            fieldnames=[
+                "threshold",
+                "tp",
+                "tn",
+                "fp",
+                "fn",
+                "accuracy",
+                "precision",
+                "recall",
+                "f1",
+            ],
+        )
         writer.writeheader()
         writer.writerows(results)
 
-    default = next(
-        row for row in results if row["threshold"] == default_threshold
-    )
+    default = next(row for row in results if row["threshold"] == default_threshold)
     best = max(results, key=lambda row: row["f1"])
     thresholds = [row["threshold"] for row in results]
 
@@ -123,11 +138,15 @@ def save_threshold_results(results, name, title, default_threshold):
     for metric in ["precision", "recall", "f1"]:
         ax.plot(thresholds, [row[metric] for row in results], label=metric)
     ax.axvline(
-        default_threshold, color="gray", linestyle=":",
+        default_threshold,
+        color="gray",
+        linestyle=":",
         label=f"Default: {default_threshold:.2f}",
     )
     ax.axvline(
-        best["threshold"], color="tab:green", linestyle="--",
+        best["threshold"],
+        color="tab:green",
+        linestyle="--",
         label=f"Best tested: {best['threshold']:.2f}",
     )
     ax.set_xlim(min(thresholds), max(thresholds))
@@ -171,10 +190,24 @@ def save_logistic_history(history, comparison):
 
     comparison_path = results_dir / "logistic_iteration_comparison.csv"
     with comparison_path.open("w", newline="") as file:
-        writer = csv.DictWriter(file, fieldnames=[
-            "iteration", "gamma", "threshold", "training_loss", "validation_loss",
-            "tp", "tn", "fp", "fn", "accuracy", "precision", "recall", "f1",
-        ])
+        writer = csv.DictWriter(
+            file,
+            fieldnames=[
+                "iteration",
+                "gamma",
+                "threshold",
+                "training_loss",
+                "validation_loss",
+                "tp",
+                "tn",
+                "fp",
+                "fn",
+                "accuracy",
+                "precision",
+                "recall",
+                "f1",
+            ],
+        )
         writer.writeheader()
         writer.writerows(comparison)
 
@@ -182,8 +215,11 @@ def save_logistic_history(history, comparison):
     fig, ax = plt.subplots(figsize=(8, 5))
     ax.plot(iterations, training_losses, label="Training", color="tab:blue")
     ax.plot(
-        iterations, validation_losses, label="Validation",
-        color="tab:orange", linestyle="--",
+        iterations,
+        validation_losses,
+        label="Validation",
+        color="tab:orange",
+        linestyle="--",
     )
     if iterations[-1] > 1000:
         ax.axvline(1000, color="gray", linestyle=":", label="Previous: 1000 steps")
@@ -217,9 +253,7 @@ def train_logistic(
 
     # Calculate the initial loss before training.
     print("\nTraining logistic regression...", flush=True)
-    w, train_loss = logistic_regression(
-        y_fit_01, tx_fit, initial_w, 0, gamma
-    )
+    w, train_loss = logistic_regression(y_fit_01, tx_fit, initial_w, 0, gamma)
     val_loss = logistic_loss(y_val_01, tx_val, w)
     history = [(0, train_loss, val_loss)]
     comparison = []
@@ -246,11 +280,16 @@ def train_logistic(
         # Keep the 1000-step result for comparison with the final result.
         if completed == 1000 and max_iters > 1000:
             predictions = np.where(sigmoid(tx_val @ w) >= threshold, 1, -1)
-            comparison.append({
-                "iteration": completed, "gamma": gamma, "threshold": threshold,
-                "training_loss": train_loss, "validation_loss": val_loss,
-                **classification_metrics(y_val, predictions),
-            })
+            comparison.append(
+                {
+                    "iteration": completed,
+                    "gamma": gamma,
+                    "threshold": threshold,
+                    "training_loss": train_loss,
+                    "validation_loss": val_loss,
+                    **classification_metrics(y_val, predictions),
+                }
+            )
 
     assert w.shape == (tx_fit.shape[1],)
     assert np.isfinite(w).all()
@@ -278,11 +317,16 @@ def train_logistic(
     print_metrics("logistic training", train_metrics)
     print_metrics("logistic validation", val_metrics)
 
-    comparison.append({
-        "iteration": max_iters, "gamma": gamma, "threshold": threshold,
-        "training_loss": train_loss, "validation_loss": val_loss,
-        **val_metrics,
-    })
+    comparison.append(
+        {
+            "iteration": max_iters,
+            "gamma": gamma,
+            "threshold": threshold,
+            "training_loss": train_loss,
+            "validation_loss": val_loss,
+            **val_metrics,
+        }
+    )
     save_logistic_history(history, comparison)
 
     # Tune the decision threshold on validation after training is complete.
@@ -290,9 +334,7 @@ def train_logistic(
     # Probability thresholds 0.01, 0.02, ..., 0.99.
     thresholds = [percent / 100 for percent in range(1, 100)]
     threshold_results = evaluate_thresholds(y_val, val_probabilities, thresholds)
-    save_threshold_results(
-        threshold_results, "logistic", "Logistic regression", 0.5
-    )
+    save_threshold_results(threshold_results, "logistic", "Logistic regression", 0.5)
 
     return w, train_loss
 
@@ -307,11 +349,24 @@ def save_ridge_results(rows):
     # One row per lambda, with metrics at that lambda's best threshold.
     csv_path = results_dir / "ridge_lambda_comparison.csv"
     with csv_path.open("w", newline="") as file:
-        writer = csv.DictWriter(file, fieldnames=[
-            "lambda", "training_loss", "validation_loss", "default_f1",
-            "threshold", "tp", "tn", "fp", "fn",
-            "accuracy", "precision", "recall", "f1",
-        ])
+        writer = csv.DictWriter(
+            file,
+            fieldnames=[
+                "lambda",
+                "training_loss",
+                "validation_loss",
+                "default_f1",
+                "threshold",
+                "tp",
+                "tn",
+                "fp",
+                "fn",
+                "accuracy",
+                "precision",
+                "recall",
+                "f1",
+            ],
+        )
         writer.writeheader()
         writer.writerows(rows)
 
@@ -320,12 +375,19 @@ def save_ridge_results(rows):
 
     # Left: loss without the penalty term, to see over- or underfitting.
     loss_ax.plot(
-        lambdas, [row["training_loss"] for row in rows],
-        marker="o", label="Training", color="tab:blue",
+        lambdas,
+        [row["training_loss"] for row in rows],
+        marker="o",
+        label="Training",
+        color="tab:blue",
     )
     loss_ax.plot(
-        lambdas, [row["validation_loss"] for row in rows],
-        marker="o", label="Validation", color="tab:orange", linestyle="--",
+        lambdas,
+        [row["validation_loss"] for row in rows],
+        marker="o",
+        label="Validation",
+        color="tab:orange",
+        linestyle="--",
     )
     loss_ax.set_xscale("log")
     loss_ax.set_xlabel("lambda")
@@ -336,18 +398,27 @@ def save_ridge_results(rows):
 
     # Right: validation F1 at score 0 and at the best tested threshold.
     f1_ax.plot(
-        lambdas, [row["default_f1"] for row in rows],
-        marker="o", label="Threshold 0", color="gray",
+        lambdas,
+        [row["default_f1"] for row in rows],
+        marker="o",
+        label="Threshold 0",
+        color="gray",
     )
     f1_ax.plot(
-        lambdas, [row["f1"] for row in rows],
-        marker="o", label="Best tested threshold", color="tab:green",
+        lambdas,
+        [row["f1"] for row in rows],
+        marker="o",
+        label="Best tested threshold",
+        color="tab:green",
     )
     # Label only the selected lambda, so the small differences stay readable.
     best = max(rows, key=lambda row: row["f1"])
     f1_ax.annotate(
-        f"{best['f1']:.4f}", (best["lambda"], best["f1"]),
-        textcoords="offset points", xytext=(0, 8), ha="center",
+        f"{best['f1']:.4f}",
+        (best["lambda"], best["f1"]),
+        textcoords="offset points",
+        xytext=(0, 8),
+        ha="center",
     )
     f1_ax.set_xscale("log")
     f1_ax.set_ylim(0, max(row["f1"] for row in rows) * 1.15)
@@ -393,11 +464,15 @@ def tune_ridge(tx_fit, y_fit, tx_val, y_val, lambdas):
         default = next(row for row in threshold_results if row["threshold"] == 0)
         best = max(threshold_results, key=lambda row: row["f1"])
 
-        rows.append({
-            "lambda": lambda_, "training_loss": train_loss,
-            "validation_loss": val_loss, "default_f1": default["f1"],
-            **best,
-        })
+        rows.append(
+            {
+                "lambda": lambda_,
+                "training_loss": train_loss,
+                "validation_loss": val_loss,
+                "default_f1": default["f1"],
+                **best,
+            }
+        )
         weights.append(w)
         all_threshold_results.append(threshold_results)
         print(
@@ -426,8 +501,10 @@ def train_ridge(tx_fit, y_fit, tx_val, y_val, lambdas):
 
     save_ridge_results(rows)
     save_threshold_results(
-        all_threshold_results[best_index], "ridge",
-        f"Ridge regression (lambda={best_lambda:g})", 0.0,
+        all_threshold_results[best_index],
+        "ridge",
+        f"Ridge regression (lambda={best_lambda:g})",
+        0.0,
     )
 
     return weights[best_index], rows[best_index]["training_loss"]
@@ -443,11 +520,26 @@ def save_feature_comparison(rows):
     # One row per feature set, with its best lambda and threshold.
     csv_path = results_dir / "feature_comparison.csv"
     with csv_path.open("w", newline="") as file:
-        writer = csv.DictWriter(file, fieldnames=[
-            "feature_set", "columns", "lambda", "training_loss",
-            "validation_loss", "default_f1", "threshold", "tp", "tn", "fp",
-            "fn", "accuracy", "precision", "recall", "f1",
-        ])
+        writer = csv.DictWriter(
+            file,
+            fieldnames=[
+                "feature_set",
+                "columns",
+                "lambda",
+                "training_loss",
+                "validation_loss",
+                "default_f1",
+                "threshold",
+                "tp",
+                "tn",
+                "fp",
+                "fn",
+                "accuracy",
+                "precision",
+                "recall",
+                "f1",
+            ],
+        )
         writer.writeheader()
         writer.writerows(rows)
 
@@ -495,18 +587,22 @@ def compare_feature_sets(x, y, feature_names, lambdas):
     for name, use_feature_rules, use_one_hot in feature_sets:
         print(f"\nPreparing feature set: {name}", flush=True)
         tx_fit, y_fit, tx_val, y_val = prepare_data(
-            x, y, feature_names=feature_names,
-            use_feature_rules=use_feature_rules, use_one_hot=use_one_hot,
+            x,
+            y,
+            feature_names=feature_names,
+            use_feature_rules=use_feature_rules,
+            use_one_hot=use_one_hot,
         )
         print("training shape (including bias):", tx_fit.shape)
 
-        ridge_rows, _, _, best_index = tune_ridge(
-            tx_fit, y_fit, tx_val, y_val, lambdas
+        ridge_rows, _, _, best_index = tune_ridge(tx_fit, y_fit, tx_val, y_val, lambdas)
+        rows.append(
+            {
+                "feature_set": name,
+                "columns": tx_fit.shape[1],
+                **ridge_rows[best_index],
+            }
         )
-        rows.append({
-            "feature_set": name, "columns": tx_fit.shape[1],
-            **ridge_rows[best_index],
-        })
 
         # Free the large arrays before preparing the next feature set.
         del tx_fit, tx_val
@@ -525,11 +621,24 @@ def save_boosting_results(rows, histories):
     # One row per depth, at its best number of trees and threshold.
     comparison_path = results_dir / "boosting_depth_comparison.csv"
     with comparison_path.open("w", newline="") as file:
-        writer = csv.DictWriter(file, fieldnames=[
-            "depth", "n_trees", "training_loss", "validation_loss",
-            "threshold", "tp", "tn", "fp", "fn",
-            "accuracy", "precision", "recall", "f1",
-        ])
+        writer = csv.DictWriter(
+            file,
+            fieldnames=[
+                "depth",
+                "n_trees",
+                "training_loss",
+                "validation_loss",
+                "threshold",
+                "tp",
+                "tn",
+                "fp",
+                "fn",
+                "accuracy",
+                "precision",
+                "recall",
+                "f1",
+            ],
+        )
         writer.writeheader()
         writer.writerows(rows)
 
@@ -547,21 +656,30 @@ def save_boosting_results(rows, histories):
     for color, row in zip(blues, rows):
         trees, training_losses, validation_losses = zip(*histories[row["depth"]])
         ax.plot(
-            trees, validation_losses, color=color,
+            trees,
+            validation_losses,
+            color=color,
             label=f"Depth {row['depth']}, validation",
         )
         ax.plot(
-            trees, training_losses, color=color, linestyle="--",
+            trees,
+            training_losses,
+            color=color,
+            linestyle="--",
             label=f"Depth {row['depth']}, training",
         )
         # Mark the number of trees with the lowest validation loss.
         ax.plot(
-            row["n_trees"], row["validation_loss"], marker="o",
-            markersize=8, color=color,
+            row["n_trees"],
+            row["validation_loss"],
+            marker="o",
+            markersize=8,
+            color=color,
         )
     # Leave out the first trees, whose large losses would hide the differences.
     all_losses = [
-        loss for history in histories.values()
+        loss
+        for history in histories.values()
         for _, train_loss, val_loss in history[10:]
         for loss in (train_loss, val_loss)
     ]
@@ -619,8 +737,10 @@ def save_feature_importance(trees, feature_names, top=15):
     shown = np.array([i for i in order[:top] if importance[i] > 0][::-1], dtype=int)
     fig, ax = plt.subplots(figsize=(8, 6))
     bars = ax.barh(
-        [feature_names[index] for index in shown], 100 * share[shown],
-        color="tab:blue", height=0.6,
+        [feature_names[index] for index in shown],
+        100 * share[shown],
+        color="tab:blue",
+        height=0.6,
     )
     ax.bar_label(bars, labels=[f"{100 * share[i]:.1f}%" for i in shown], padding=3)
     ax.set_xlim(0, 100 * share[shown].max() * 1.15 if len(shown) > 0 else 1)
@@ -638,8 +758,14 @@ def save_feature_importance(trees, feature_names, top=15):
 
 
 def train_boosting(
-    x_fit, y_fit, x_val, y_val, feature_names, depths,
-    n_trees=400, learning_rate=0.1,
+    x_fit,
+    y_fit,
+    x_val,
+    y_val,
+    feature_names,
+    depths,
+    n_trees=400,
+    learning_rate=0.1,
 ):
     # Trees split on raw values, so no filling, scaling or one-hot is needed.
     print("\nBinning features for boosted trees...", flush=True)
@@ -662,8 +788,13 @@ def train_boosting(
             flush=True,
         )
         trees, base_score, history, best_n_trees = fit_boosting(
-            bins_fit, y_fit_01, bins_val, y_val_01,
-            n_trees=n_trees, learning_rate=learning_rate, max_depth=depth,
+            bins_fit,
+            y_fit_01,
+            bins_val,
+            y_val_01,
+            n_trees=n_trees,
+            learning_rate=learning_rate,
+            max_depth=depth,
         )
         histories[depth] = history
 
@@ -672,17 +803,18 @@ def train_boosting(
         val_probabilities = sigmoid(
             predict_boosting(trees, base_score, learning_rate, bins_val)
         )
-        threshold_results = evaluate_thresholds(
-            y_val, val_probabilities, thresholds
-        )
+        threshold_results = evaluate_thresholds(y_val, val_probabilities, thresholds)
         best = max(threshold_results, key=lambda row: row["f1"])
 
-        rows.append({
-            "depth": depth, "n_trees": best_n_trees,
-            "training_loss": history[best_n_trees][1],
-            "validation_loss": history[best_n_trees][2],
-            **best,
-        })
+        rows.append(
+            {
+                "depth": depth,
+                "n_trees": best_n_trees,
+                "training_loss": history[best_n_trees][1],
+                "validation_loss": history[best_n_trees][2],
+                **best,
+            }
+        )
         models.append((trees, base_score, threshold_results))
         print(
             f"depth={depth}: best number of trees={best_n_trees}, "
@@ -704,7 +836,8 @@ def train_boosting(
 
     save_boosting_results(rows, histories)
     save_threshold_results(
-        threshold_results, "boosting",
+        threshold_results,
+        "boosting",
         f"Boosted trees (depth {best_row['depth']}, {best_row['n_trees']} trees)",
         0.5,
     )
@@ -751,8 +884,10 @@ def main():
     # Prepare the same training and validation data for all models.
     print("\nPreparing training and validation data...", flush=True)
     tx_fit, y_fit, tx_val, y_val = prepare_data(
-        x_train, y_train,
-        feature_names=feature_names, use_feature_rules=use_feature_rules,
+        x_train,
+        y_train,
+        feature_names=feature_names,
+        use_feature_rules=use_feature_rules,
         use_one_hot=use_one_hot,
     )
     print("training shape (including bias):", tx_fit.shape)
@@ -762,8 +897,13 @@ def main():
     evaluate_baseline(y_fit, y_val)
     if run_logistic:
         train_logistic(
-            tx_fit, y_fit, tx_val, y_val,
-            max_iters=5000, gamma=0.01, threshold=0.5,
+            tx_fit,
+            y_fit,
+            tx_val,
+            y_val,
+            max_iters=5000,
+            gamma=0.01,
+            threshold=0.5,
         )
     if run_ridge:
         train_ridge(tx_fit, y_fit, tx_val, y_val, lambdas=ridge_lambdas)
@@ -771,16 +911,23 @@ def main():
         # Same split, but raw values with missing entries kept as NaN.
         print("\nSplitting raw data for boosted trees...", flush=True)
         x_fit_raw, y_fit_raw, x_val_raw, y_val_raw = split_data(
-            x_train, y_train,
-            feature_names=feature_names, use_feature_rules=use_feature_rules,
+            x_train,
+            y_train,
+            feature_names=feature_names,
+            use_feature_rules=use_feature_rules,
         )
         tree_feature_names = (
-            cleaned_feature_names(feature_names) if use_feature_rules
-            else feature_names
+            cleaned_feature_names(feature_names) if use_feature_rules else feature_names
         )
         train_boosting(
-            x_fit_raw, y_fit_raw, x_val_raw, y_val_raw, tree_feature_names,
-            depths=boosting_depths, n_trees=400, learning_rate=0.1,
+            x_fit_raw,
+            y_fit_raw,
+            x_val_raw,
+            y_val_raw,
+            tree_feature_names,
+            depths=boosting_depths,
+            n_trees=400,
+            learning_rate=0.1,
         )
     print("\nFinished.", flush=True)
 

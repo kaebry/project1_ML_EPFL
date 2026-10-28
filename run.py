@@ -1,9 +1,11 @@
 """Reproduce our submission: gradient-boosted trees of depth 3.
 
-The settings below were chosen on the stratified validation split in
-train.py (see results/boosting_depth_comparison.csv). Here the model is
-retrained on all labelled rows with those fixed settings and predicts x_test.
-Everything is seeded, so running this script again writes the same file.
+The settings below were chosen on the stratified validation split: depth 3
+in train.py (results/boosting_depth_comparison.csv), and learning rate 0.05
+with 800 trees in tune_boosting.py (results/tuning/tuning_comparison.csv).
+Here the model is retrained on all labelled rows with those fixed settings
+and predicts x_test. Everything is seeded, so running this script again
+writes the same file (our best AIcrowd submission: F1 0.454).
 """
 from pathlib import Path
 
@@ -14,10 +16,10 @@ from helpers import create_csv_submission, load_csv_data
 from implementations import sigmoid
 from preprocessing import clean_known_features, load_feature_names
 
-# Settings chosen on validation (validation F1 = 0.4492).
-N_TREES = 331
+# Settings chosen on validation (validation F1 = 0.4518, lowest loss at 798 trees).
+N_TREES = 800
 MAX_DEPTH = 3
-LEARNING_RATE = 0.1
+LEARNING_RATE = 0.05
 LAMBDA = 1.0
 MIN_CHILD_WEIGHT = 1.0
 SUBSAMPLE = 0.5
@@ -51,10 +53,17 @@ def main():
     print(f"Training {N_TREES} boosted trees of depth {MAX_DEPTH}...", flush=True)
     y_train_01 = (y_train == 1).astype(float)
     trees, base_score, _, _ = fit_boosting(
-        bins_train, y_train_01, None, None,
-        n_trees=N_TREES, learning_rate=LEARNING_RATE, max_depth=MAX_DEPTH,
-        lambda_=LAMBDA, min_child_weight=MIN_CHILD_WEIGHT,
-        subsample=SUBSAMPLE, seed=SEED,
+        bins_train,
+        y_train_01,
+        None,
+        None,
+        n_trees=N_TREES,
+        learning_rate=LEARNING_RATE,
+        max_depth=MAX_DEPTH,
+        lambda_=LAMBDA,
+        min_child_weight=MIN_CHILD_WEIGHT,
+        subsample=SUBSAMPLE,
+        seed=SEED,
     )
 
     # Predict probabilities and convert them to -1/+1 labels.

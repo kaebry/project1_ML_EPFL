@@ -1,5 +1,4 @@
 import numpy as np
-import matplotlib
 
 
 def mean_squared_error_gd(y, tx, initial_w, max_iters, gamma):

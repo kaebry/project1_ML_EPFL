@@ -97,8 +97,13 @@ def plot_numeric_by_class(values, y, bins, title, xlabel, output_path):
         # Normalize each class separately so the larger class does not dominate.
         weights = np.full(len(observed), 100 / len(observed))
         ax.hist(
-            observed, bins=bins, weights=weights, histtype="step", linewidth=2,
-            color=color, label=f"Label {label:+d} (NaN: {missing_percentage:.1f}%)",
+            observed,
+            bins=bins,
+            weights=weights,
+            histtype="step",
+            linewidth=2,
+            color=color,
+            label=f"Label {label:+d} (NaN: {missing_percentage:.1f}%)",
         )
 
     ax.set_xlabel(xlabel)
@@ -122,8 +127,11 @@ def plot_categories_by_class(values, y, codes, category_labels, title, output_pa
         counts.append(np.sum(~np.isin(class_values, codes)))
         percentages = 100 * np.array(counts) / len(class_values)
         ax.bar(
-            positions + offset, percentages, width=0.4,
-            color=color, label=f"Label {label:+d}",
+            positions + offset,
+            percentages,
+            width=0.4,
+            color=color,
+            label=f"Label {label:+d}",
         )
 
     ax.set_xticks(positions, category_labels + ["Unavailable"])
@@ -189,27 +197,35 @@ def main():
     plot_missing_values(x_fit, feature_names, output_dir)
 
     plot_numeric_by_class(
-        x_fit[:, feature_names.index("_AGE80")], y_fit,
-        bins=np.arange(17.5, 81.5), title="Age distribution (training split)",
+        x_fit[:, feature_names.index("_AGE80")],
+        y_fit,
+        bins=np.arange(17.5, 81.5),
+        title="Age distribution (training split)",
         xlabel="Age (years; 80 means 80+)",
         output_path=output_dir / "age_distribution.png",
     )
     plot_numeric_by_class(
-        x_fit[:, feature_names.index("_BMI5")], y_fit,
-        bins=np.arange(10, 101, 2), title="BMI distribution (training split)",
-        xlabel="BMI (kg/m²)", output_path=output_dir / "bmi_distribution.png",
+        x_fit[:, feature_names.index("_BMI5")],
+        y_fit,
+        bins=np.arange(10, 101, 2),
+        title="BMI distribution (training split)",
+        xlabel="BMI (kg/m²)",
+        output_path=output_dir / "bmi_distribution.png",
     )
 
     plot_categories_by_class(
-        x_fit[:, feature_names.index("GENHLTH")], y_fit,
+        x_fit[:, feature_names.index("GENHLTH")],
+        y_fit,
         codes=[1, 2, 3, 4, 5],
         category_labels=["Excellent", "Very good", "Good", "Fair", "Poor"],
         title="Self-rated health (training split)",
         output_path=output_dir / "general_health.png",
     )
     plot_categories_by_class(
-        x_fit[:, feature_names.index("SEX")], y_fit,
-        codes=[1, 2], category_labels=["Male", "Female"],
+        x_fit[:, feature_names.index("SEX")],
+        y_fit,
+        codes=[1, 2],
+        category_labels=["Male", "Female"],
         title="Recorded sex (training split)",
         output_path=output_dir / "sex_distribution.png",
     )

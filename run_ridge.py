@@ -34,8 +34,11 @@ def main():
     # Rules, one-hot, filling and scaling are learned from the labelled rows only.
     print("Preparing features (reviewed rules + one-hot)...", flush=True)
     tx_train, tx_test = prepare_train_test(
-        x_train, x_test, feature_names,
-        use_feature_rules=True, use_one_hot=True,
+        x_train,
+        x_test,
+        feature_names,
+        use_feature_rules=True,
+        use_one_hot=True,
     )
     print("training shape (including bias):", tx_train.shape)
     print("test shape (including bias):", tx_test.shape)
